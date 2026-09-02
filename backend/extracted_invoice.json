@@ -1,0 +1,20 @@
+{
+  "invoice_number": "ACZ2026000000243",
+  "invoice_date": "6.08.2026",
+  "currency": "USD",
+  "seller_name": "ACIOZ PETROL HUR. NAK. SAN. TIC. LTD. STI.",
+  "buyer_name": "BESTTERRA OIL LLC",
+  "total_invoice_amount": 25725.6,
+  "items": [
+    {
+      "item_number": 1,
+      "article": "BA1586 HK / BA7862XF",
+      "description": "GRUP 1 BAZ YAĞ (BASE OIL SN 100)",
+      "quantity": 23.82,
+      "unit": "USD",
+      "price_per_unit": 1.08,
+      "total_amount": 25725.6,
+      "country_of_origin": "Turkey"
+    }
+  ]
+}
