@@ -72,7 +72,13 @@ class InvoiceItem(BaseModel):
 class InvoiceData(BaseModel):
     invoice_number: Optional[str] = Field(
         default=None,
-        description="Invoice number. Read carefully, number by number, do not skip long numbers and do not skip repited zero in the middle of the number. It is 16 characters long. If you cannot find it, write 'not found'.",
+        description=(
+            "Locate the invoice number. To prevent tokenization errors with repeated zeros,"
+            "transcribe the number exactly as it appears, separating every single character"
+            "with a hyphen (e.g., A-C-Z-1-0-1-1-0-0-0-0-0-0-1-1-1). Count the characters to"
+            "verify it is exactly 16 characters long."
+            "number on a new line. If not found, write 'not found'."
+        ),
     )
     invoice_date: Optional[str] = Field(default=None, description="Дата видачі інвойсу")
     currency: Optional[str] = Field(
@@ -137,7 +143,7 @@ async def parse_invoice(
 
     try:
         # Вказуємо poppler_path для зчитування бінарників з Lambda Layer
-        images = convert_from_bytes(pdf_bytes, dpi=500, poppler_path=POPPLER_PATH)
+        images = convert_from_bytes(pdf_bytes, dpi=350, poppler_path=POPPLER_PATH)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
