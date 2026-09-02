@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import re
+import time
 from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -14,11 +15,13 @@ import pandas as pd
 from pdf2image import convert_from_bytes
 from PIL import Image
 from pydantic import BaseModel, Field
+from pypdf import PdfReader, PdfWriter
 
 load_dotenv()
 
 logger = logging.getLogger("broker.api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
 # Lambda layer binary path for Poppler
 POPPLER_PATH = os.getenv("POPPLER_PATH")
@@ -45,10 +48,39 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Log every API request and its response status."""
+    started_at = time.perf_counter()
+    logger.info("Request started: %s %s", request.method, request.url.path)
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        logger.exception(
+            "Request failed: %s %s (%.1f ms)",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        raise
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "%s %s -> %s (%.1f ms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
+
+
 # Suspicious tokens: e.g. "1/6", "25-6" — looks like a Cyrillic letter
 # ('б', 'А', 'В', ...) was misread as a digit. The original Ukrainian
 # numbering uses "<digits><sep><letter>" very commonly.
 _SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
+
+DPI = 150
 
 
 class PartyDetails(BaseModel):
@@ -128,6 +160,10 @@ class ApplicationItem(BaseModel):
     unloading_address: Optional[str] = Field(
         default=None, description="Адреса розвантаження"
     )
+    unloading_city: Optional[str] = Field(
+        default=None,
+        description="Адреса розвантаження. Take only the city name from the full address, e.g., 'Львів' or 'Lviv'.",
+    )
     unloading_address_source: Optional[str] = Field(
         default=None,
         description="Raw OCR substring from the document that unloading_address was transcribed from",
@@ -186,32 +222,6 @@ def find_suspicious_address_token(item: "ApplicationItem") -> Optional[str]:
     return None
 
 
-# Suspicious tokens: e.g. "1/6", "25-6" — looks like a Cyrillic letter
-# ('б', 'А', 'В', ...) was misread as a digit. The original Ukrainian
-# numbering uses "<digits><sep><letter>" very commonly.
-_SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
-
-_ADDRESS_FIELDS = (
-    "loading_address",
-    "customs_outbound_address",
-    "customs_inbound_address",
-    "unloading_address",
-)
-
-
-def find_suspicious_address_token(item: "ApplicationItem") -> Optional[str]:
-    """Return the first suspicious `<num>/<digit>` token across all address fields,
-    or None if no field has one."""
-    for name in _ADDRESS_FIELDS:
-        value = getattr(item, name, None)
-        if not value:
-            continue
-        m = _SUSPICIOUS_ADDRESS_TOKEN.search(value)
-        if m:
-            return m.group(0)
-    return None
-
-
 # 1. Pydantic схеми
 class UktZedSuggestion(BaseModel):
     code: str = Field(description="10-значний код УКТ ЗЕД (наприклад, 2710199900)")
@@ -229,6 +239,9 @@ class InvoiceItem(BaseModel):
         default=None, description="Артикул, код або SKU товару"
     )
     description: str = Field(description="Повний опис товару/найменування з інвойсу")
+    oil_group: str = Field(
+        description="Description, if it's oil, take the petrochemicals, such as N700, DEG, SN 70, SN 80, SN 150 etc."
+    )
     quantity: float = Field(description="Кількість товару")
     unit: str = Field(description="Одиниця виміру (шт, кг, м, pack тощо)")
     price_per_unit: float = Field(description="Ціна за одиницю")
@@ -236,12 +249,19 @@ class InvoiceItem(BaseModel):
     country_of_origin: Optional[str] = Field(
         default=None, description="Країна походження товару"
     )
+    net_weight_kg: Optional[float] = Field(
+        default=None, description="Маса нетто позиції в кілограмах"
+    )
     uktzed_suggestion: Optional[UktZedSuggestion] = Field(
         default=None, description="Автоматично згенерована підказка УКТ ЗЕД"
     )
 
 
 class InvoiceData(BaseModel):
+    contract_number: Optional[str] = Field(
+        default=None,
+        description=("Locate the invoice number. If not found, write 'not found'."),
+    )
     invoice_number: Optional[str] = Field(
         default=None,
         description=(
@@ -282,6 +302,12 @@ def encode_lossless_image_to_base64(image: Image.Image) -> str:
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 
+def encode_lossless_image_to_base64(image: Image.Image) -> str:
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG", optimize=True)
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
 # 2. Функція підбору коду УКТ ЗЕД для конкретної позиції
 def get_uktzed_code(
     client: OpenAI, item_description: str, article: Optional[str]
@@ -310,6 +336,7 @@ async def parse_invoice(
     file: UploadFile = File(...),
     parse_uktzed: bool = Form(False),
 ):
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(
             status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
@@ -317,19 +344,26 @@ async def parse_invoice(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
+    logger.info(
+        "Parsing invoice file=%s size=%d bytes parse_uktzed=%s",
+        file.filename,
+        len(pdf_bytes),
+        parse_uktzed,
+    )
     try:
-        # На AWS Lambda використовуємо poppler з Layer; локально — системний pdftoppm
-        if POPPLER_PATH:
-            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
-        else:
-            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        # Вказуємо poppler_path для зчитування бінарників з Lambda Layer
+        images = convert_from_bytes(pdf_bytes, dpi=350, poppler_path=POPPLER_PATH)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
     content_payload = [
         {
             "type": "text",
-            "text": "Carefully extract all invoice data and line items in a structured format.",
+            "text": (
+                "Carefully extract all invoice data and line items in a structured format. "
+                "For every line item, extract net_weight_kg when the net weight is visible; "
+                "otherwise leave it null."
+            ),
         }
     ]
 
@@ -343,19 +377,23 @@ async def parse_invoice(
         )
 
     # Витягуємо дані інвойсу через Vision API
-    completion = client.beta.chat.completions.parse(
-        model=gpt_model,
-        messages=[
-            {
-                "role": "system",
-                "content": "Ти професійний експерт з декларування та митного оформлення. "
-                "Точно зчитуй дані з документів без фантазування.",
-            },
-            {"role": "user", "content": content_payload},
-        ],
-        response_format=InvoiceData,
-        temperature=0.0,
-    )
+    try:
+        completion = client.beta.chat.completions.parse(
+            model=gpt_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Ти професійний експерт з декларування та митного оформлення. "
+                    "Точно зчитуй дані з документів без фантазування.",
+                },
+                {"role": "user", "content": content_payload},
+            ],
+            response_format=InvoiceData,
+            temperature=0.0,
+        )
+    except Exception:
+        logger.exception("OpenAI invoice parsing failed for file=%s", file.filename)
+        raise
 
     parsed_data = completion.choices[0].message.parsed
 
@@ -392,6 +430,7 @@ async def parse_invoice(
 async def parse_application(
     file: UploadFile = File(...),
 ):
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(
             status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
@@ -399,6 +438,7 @@ async def parse_application(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
+    dpi = DPI
     try:
         if POPPLER_PATH:
             images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
@@ -513,6 +553,132 @@ async def export_excel(data: InvoiceData):
     )
 
 
+@app.post("/api/compress-pdf")
+async def compress_pdf(
+    file: UploadFile = File(...),
+    max_size_kb: int = Form(500),
+    remove_color: bool = Form(True),
+):
+    if not file.content_type or "pdf" not in file.content_type.lower():
+        raise HTTPException(status_code=400, detail="Файл має бути PDF")
+
+    pdf_bytes = await file.read()
+    max_size_bytes = max_size_kb * 1024
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    for page in writer.pages:
+        page.compress_content_streams()
+
+    buf = io.BytesIO()
+    writer.write(buf)
+    compressed = buf.getvalue()
+
+    def _try_grayscale(dpi: int) -> bytes:
+        if POPPLER_PATH:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        gray_images = [img.convert("L") for img in images]
+        out = io.BytesIO()
+        gray_images[0].save(
+            out,
+            format="PDF",
+            save_all=True,
+            append_images=gray_images[1:],
+            resolution=dpi,
+            optimize=True,
+        )
+        return out.getvalue()
+
+    def _try_quality(dpi: int, quality: int) -> bytes:
+        if POPPLER_PATH:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        if remove_color:
+            images = [img.convert("L") for img in images]
+        out = io.BytesIO()
+        images[0].save(
+            out,
+            format="PDF",
+            save_all=True,
+            append_images=images[1:],
+            resolution=dpi,
+            optimize=True,
+            quality=quality,
+        )
+        return out.getvalue()
+
+    if len(compressed) > max_size_bytes:
+        logger.info(
+            "Initial lossless size=%d bytes, target=%d bytes",
+            len(compressed),
+            max_size_bytes,
+        )
+
+        if remove_color:
+            try:
+                compressed = _try_grayscale(DPI)
+                logger.info("Grayscale size=%d bytes", len(compressed))
+                if len(compressed) <= max_size_bytes:
+                    pass
+            except Exception:
+                logger.exception("Grayscale compression attempt failed")
+
+        if len(compressed) > max_size_bytes:
+            quality = 95
+            while len(compressed) > max_size_bytes and quality >= 40:
+                try:
+                    compressed = _try_quality(DPI, quality)
+                    logger.info("Quality=%d size=%d bytes", quality, len(compressed))
+                    if len(compressed) <= max_size_bytes:
+                        break
+                except Exception:
+                    logger.exception("Quality compression attempt failed")
+                    break
+                quality -= 5
+
+        if len(compressed) > max_size_bytes:
+            dpi = DPI
+            while len(compressed) > max_size_bytes and dpi >= 50:
+                quality = 95
+                while len(compressed) > max_size_bytes and quality >= 40:
+                    try:
+                        compressed = _try_quality(dpi, quality)
+                        logger.info(
+                            "DPI=%d quality=%d size=%d bytes",
+                            dpi,
+                            quality,
+                            len(compressed),
+                        )
+                        if len(compressed) <= max_size_bytes:
+                            break
+                    except Exception:
+                        logger.exception("DPI/quality compression attempt failed")
+                        break
+                    quality -= 5
+                if len(compressed) <= max_size_bytes:
+                    break
+                dpi -= 25
+
+    if len(compressed) > max_size_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Не вдалося стиснути PDF до {max_size_kb} KB. Мінімальний досяжний розмір: {len(compressed) // 1024} KB",
+        )
+
+    filename = f"compressed_{file.filename or 'document'}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        io.BytesIO(compressed),
+        headers=headers,
+        media_type="application/pdf",
+    )
+
+
 class CMRParty(BaseModel):
     name_and_address: Optional[str] = Field(
         default=None,
@@ -590,6 +756,10 @@ class CMRDocument(BaseModel):
     delivery_place: Optional[str] = Field(
         default=None,
         description="3 Kravas izkraušanas vieta / Place of delivery of the goods[span_16](start_span)[span_16](end_span)",
+    )
+    delivery_city: Optional[str] = Field(
+        default=None,
+        description="3 Kravas izkraušanas vieta / Place of delivery of the goods. Take only the city name from the full address, e.g., 'Rīga' or 'Riga'.",
     )
     taking_over_place: Optional[str] = Field(
         default=None,
@@ -677,6 +847,39 @@ class CMRDocument(BaseModel):
     )
 
 
+class CombinedDocumentSummary(BaseModel):
+    contract: Optional[str] = Field(default=None, description="Номер контракту")
+    net_weight_kg: Optional[float] = Field(
+        default=None, description="Загальна маса нетто в кілограмах"
+    )
+    border_crossing_point: Optional[str] = Field(
+        default=None, description="Попередня декларация"
+    )
+    carrier: Optional[str] = Field(default=None, description="Перевізник")
+    nomenclature: List[str] = Field(
+        default_factory=list, description="Номенклатура товарів"
+    )
+    unloading_city: Optional[str] = Field(
+        default=None,
+        description="Місто розвантаження, тільки назва міста без вулиці та номера будинку",
+    )
+    invoice_number: Optional[str] = Field(
+        default=None, description="Номер інвойсу / ВН номер (ПД)"
+    )
+    vn_number_pd: Optional[str] = Field(default=None, description="ВН номер (ПД)")
+    vehicle_number: Optional[str] = Field(default=None, description="Номер машини")
+    tax_document_number: Optional[str] = Field(
+        default=None, description="Попередня декларация"
+    )
+
+
+class CombinedDocumentData(BaseModel):
+    summary: CombinedDocumentSummary
+    invoice: InvoiceData
+    application: ApplicationItem
+    cmr: CMRDocument
+
+
 @app.post("/api/parse-cmr", response_model=CMRDocument)
 async def parse_cmr(
     file: UploadFile = File(...),
@@ -689,6 +892,7 @@ async def parse_cmr(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
+    dpi = DPI
     try:
         if POPPLER_PATH:
             images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
@@ -741,3 +945,117 @@ async def parse_cmr(
     )
 
     return completion.choices[0].message.parsed
+
+
+@app.post("/api/parse-transport-documents", response_model=CombinedDocumentData)
+async def parse_transport_documents(
+    invoice_file: UploadFile = File(...),
+    application_file: UploadFile = File(...),
+    cmr_file: UploadFile = File(...),
+    parse_uktzed: bool = Form(False),
+):
+    # Parse an invoice, transport application, and CMR in one request.
+    invoice, application, cmr = await asyncio.gather(
+        parse_invoice(invoice_file, parse_uktzed),
+        parse_application(application_file),
+        parse_cmr(cmr_file),
+    )
+
+    net_weights = [
+        item.net_weight_kg for item in invoice.items if item.net_weight_kg is not None
+    ]
+    carrier = (
+        application.carrier_details.name
+        if application.carrier_details
+        else (cmr.carrier.name_and_address if cmr.carrier else None)
+    )
+
+    nomenclature = [item.oil_group for item in invoice.items]
+    if not nomenclature:
+        nomenclature = [
+            item.name_of_goods for item in cmr.cargo_items if item.name_of_goods
+        ]
+
+    summary = CombinedDocumentSummary(
+        contract=invoice.contract_number,
+        net_weight_kg=sum(net_weights) if net_weights else None,
+        border_crossing_point=application.border_crossing_point,
+        carrier=carrier,
+        nomenclature=nomenclature,
+        unloading_city=cmr.delivery_city.upper() or application.unloading_city.upper(),
+        invoice_number=invoice.contract_number,
+        vn_number_pd=invoice.contract_number,
+        vehicle_number="".join(application.vehicle_info.split()),
+        tax_document_number=invoice.contract_number,
+    )
+    return CombinedDocumentData(
+        summary=summary,
+        invoice=invoice,
+        application=application,
+        cmr=cmr,
+    )
+
+
+class TransportDocumentsRow(BaseModel):
+    contract: str = ""
+    blank_1: str = ""
+    net_weight_kg: str = ""
+    border_crossing_point: str = ""
+    carrier: str = ""
+    nomenclature: str = ""
+    unloading_city: str = ""
+    blank_2: str = ""
+    vehicle_number: str = ""
+    values: List[str] = Field(
+        default_factory=list,
+        description="The same nine fields as a positional list, in order.",
+    )
+
+
+def _build_transport_documents_row(data: "CombinedDocumentData") -> list[str]:
+    summary = data.summary
+    nomenclature = ", ".join(summary.nomenclature or [])
+    return [
+        summary.contract or "",
+        "",
+        str(summary.net_weight_kg) if summary.net_weight_kg is not None else "",
+        summary.border_crossing_point or "",
+        summary.carrier or "",
+        nomenclature,
+        summary.unloading_city or "",
+        "",
+        summary.vehicle_number or "",
+    ]
+
+
+@app.post(
+    "/api/parse-transport-documents-row",
+    response_model=TransportDocumentsRow,
+)
+async def parse_transport_documents_row(
+    invoice_file: UploadFile = File(...),
+    application_file: UploadFile = File(...),
+    cmr_file: UploadFile = File(...),
+    parse_uktzed: bool = Form(False),
+):
+    """Parse three transport documents and return a flat row of strings
+    matching the legacy Spark `val(...)` column layout."""
+    data = await parse_transport_documents(
+        invoice_file=invoice_file,
+        application_file=application_file,
+        cmr_file=cmr_file,
+        parse_uktzed=parse_uktzed,
+    )
+    values = _build_transport_documents_row(data)
+    return TransportDocumentsRow(
+        contract=values[0],
+        blank_1=values[1],
+        net_weight_kg=values[2],
+        border_crossing_point=values[3],
+        carrier=values[4],
+        nomenclature=values[5],
+        unloading_city=values[6],
+        blank_2=values[7],
+        vehicle_number=values[8],
+        values=values,
+    )

@@ -8,11 +8,6 @@ output "cloudfront_url" {
   value       = "https://${aws_cloudfront_distribution.main.domain_name}"
 }
 
-output "cloudfront_distribution_id" {
-  description = "ID of the CloudFront distribution"
-  value       = aws_cloudfront_distribution.main.id
-}
-
 output "s3_frontend_bucket" {
   description = "Name of the S3 bucket for frontend"
   value       = aws_s3_bucket.frontend.id
@@ -31,4 +26,9 @@ output "lambda_function_name" {
 output "custom_domain_url" {
   description = "Root URL of the production site"
   value       = var.use_custom_domain ? "https://${var.root_domain}" : ""
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront Distribution ID for cache invalidation"
+  value       = aws_cloudfront_distribution.main.id
 }

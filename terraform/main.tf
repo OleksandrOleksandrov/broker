@@ -143,9 +143,9 @@ resource "aws_lambda_function" "api" {
       S3_BUCKET        = aws_s3_bucket.memory.id
       USE_S3           = "true"
       BEDROCK_MODEL_ID = var.bedrock_model_id
-      OPENAI_API_KEY   = var.openai_api_key
       LD_LIBRARY_PATH  = var.ld_library_path
       POPPLER_PATH     = var.poppler_path
+      OPENAI_API_KEY   = var.openai_api_key
     }
   }
 
@@ -209,7 +209,8 @@ resource "aws_apigatewayv2_route" "get_health" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
-resource "aws_apigatewayv2_route" "default_route" {
+# Forward all FastAPI paths (including the /api/* document endpoints) to Lambda.
+resource "aws_apigatewayv2_route" "default" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "$default"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
@@ -227,7 +228,7 @@ resource "aws_lambda_permission" "api_gw" {
 # CloudFront distribution
 resource "aws_cloudfront_distribution" "main" {
   aliases = local.aliases
-  
+
   viewer_certificate {
     acm_certificate_arn            = var.use_custom_domain ? aws_acm_certificate.site[0].arn : null
     cloudfront_default_certificate = var.use_custom_domain ? false : true
