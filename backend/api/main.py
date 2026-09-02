@@ -1,9 +1,11 @@
+import asyncio
 import base64
 import io
+import logging
 import os
 from typing import List, Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
@@ -14,10 +16,19 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-# Lambda layer binary path for Poppler
-POPPLER_PATH = os.getenv("POPPLER_PATH", "/opt/bin/pdfinfo")
+logger = logging.getLogger("broker.api")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
-app = FastAPI(title="Customs Broker AI Assistant")
+# Lambda layer binary path for Poppler
+POPPLER_PATH = os.getenv("POPPLER_PATH")
+
+app = FastAPI(
+    title="Broker AI Assistant",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+)
+
 
 # Дозволяємо запити з Node.js фронтенду
 app.add_middleware(
@@ -61,7 +72,13 @@ class InvoiceItem(BaseModel):
 class InvoiceData(BaseModel):
     invoice_number: Optional[str] = Field(
         default=None,
-        description="Invoice number. Read carefully, number by number, do not skip long numbers and do not skip repited zero in the middle of the number. It is 16 characters long. If you cannot find it, write 'not found'.",
+        description=(
+            "Locate the invoice number. To prevent tokenization errors with repeated zeros,"
+            "transcribe the number exactly as it appears, separating every single character"
+            "with a hyphen (e.g., A-C-Z-1-0-1-1-0-0-0-0-0-0-1-1-1). Count the characters to"
+            "verify it is exactly 16 characters long."
+            "number on a new line. If not found, write 'not found'."
+        ),
     )
     invoice_date: Optional[str] = Field(default=None, description="Дата видачі інвойсу")
     currency: Optional[str] = Field(
@@ -111,7 +128,10 @@ def get_uktzed_code(
 
 # 3. Ендпоінт обробки PDF
 @app.post("/api/parse-invoice", response_model=InvoiceData)
-async def parse_invoice(file: UploadFile = File(...)):
+async def parse_invoice(
+    file: UploadFile = File(...),
+    parse_uktzed: bool = Form(False),
+):
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -120,10 +140,13 @@ async def parse_invoice(file: UploadFile = File(...)):
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
-
+    dpi = 350  # Висока роздільна здатність для кращого OCR
     try:
-        # Вказуємо poppler_path для зчитування бінарників з Lambda Layer
-        images = convert_from_bytes(pdf_bytes, dpi=300, poppler_path=POPPLER_PATH)
+        # На AWS Lambda використовуємо poppler з Layer; локально — системний pdftoppm
+        if POPPLER_PATH:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
@@ -160,18 +183,31 @@ async def parse_invoice(file: UploadFile = File(...)):
 
     parsed_data = completion.choices[0].message.parsed
 
-    # Автоматично підбираємо код УКТ ЗЕД для кожної позиції
-    for item in parsed_data.items:
-        try:
-            item.uktzed_suggestion = get_uktzed_code(
-                client, item.description, item.article
-            )
-        except Exception:
-            item.uktzed_suggestion = UktZedSuggestion(
-                code="0000000000",
-                description="Не вдалося визначити",
-                justification="Помилка при запиті класифікації",
-            )
+    # Підбираємо коди УКТ ЗЕД лише за запитом користувача (чекбокс у фронтенді)
+    if parse_uktzed and parsed_data.items:
+        logger.info(
+            "UKT ZED classification requested for %d item(s)", len(parsed_data.items)
+        )
+
+        async def classify(item: InvoiceItem) -> None:
+            try:
+                item.uktzed_suggestion = await asyncio.to_thread(
+                    get_uktzed_code, client, item.description, item.article
+                )
+            except Exception as e:
+                logger.exception("UKT ZED classification failed for item: %s", e)
+                item.uktzed_suggestion = UktZedSuggestion(
+                    code="0000000000",
+                    description="Не вдалося визначити",
+                    justification="Помилка при запиті класифікації",
+                )
+
+        await asyncio.gather(*(classify(item) for item in parsed_data.items))
+    else:
+        # Якщо класифікація не потрібна — явно очищаємо поле,
+        # щоб клієнт не отримав застарілі дані
+        for item in parsed_data.items:
+            item.uktzed_suggestion = None
 
     return parsed_data
 

@@ -1,6 +1,11 @@
 # Data source to get current AWS account ID
 data "aws_caller_identity" "current" {}
 
+data "aws_lambda_layer_version" "poppler" {
+  layer_name = "poppler"
+  version    = 1
+}
+
 locals {
   aliases = var.use_custom_domain && var.root_domain != "" ? [
     var.root_domain,
@@ -128,6 +133,7 @@ resource "aws_lambda_function" "api" {
   source_code_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
   runtime          = "python3.12"
   architectures    = ["x86_64"]
+  memory_size      = 1024
   timeout          = var.lambda_timeout
   tags             = local.common_tags
 
@@ -138,11 +144,17 @@ resource "aws_lambda_function" "api" {
       USE_S3           = "true"
       BEDROCK_MODEL_ID = var.bedrock_model_id
       OPENAI_API_KEY   = var.openai_api_key
+      LD_LIBRARY_PATH  = var.ld_library_path
+      POPPLER_PATH     = var.poppler_path
     }
   }
 
   # Ensure Lambda waits for the distribution to exist
   depends_on = [aws_cloudfront_distribution.main]
+
+  layers = [
+    data.aws_lambda_layer_version.poppler.arn
+  ]
 }
 
 # API Gateway HTTP API
