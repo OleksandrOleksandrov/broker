@@ -145,6 +145,7 @@ resource "aws_lambda_function" "api" {
       BEDROCK_MODEL_ID = var.bedrock_model_id
       OPENAI_API_KEY   = var.openai_api_key
       LD_LIBRARY_PATH  = var.ld_library_path
+      POPPLER_PATH     = var.poppler_path
     }
   }
 

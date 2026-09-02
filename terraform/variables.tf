@@ -63,3 +63,9 @@ variable "ld_library_path" {
   type        = string
   sensitive   = false
 }
+
+variable "poppler_path" {
+  description = "Path for popper"
+  type        = string
+  sensitive   = false
+}

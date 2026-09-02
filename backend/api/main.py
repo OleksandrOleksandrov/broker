@@ -20,7 +20,7 @@ logger = logging.getLogger("broker.api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 # Lambda layer binary path for Poppler
-POPPLER_PATH = os.getenv("POPPLER_PATH", "/opt/poppler/bin")
+POPPLER_PATH = os.getenv("POPPLER_PATH")
 
 app = FastAPI(
     title="Broker AI Assistant",
@@ -140,10 +140,13 @@ async def parse_invoice(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
-
+    dpi = 350  # Висока роздільна здатність для кращого OCR
     try:
-        # Вказуємо poppler_path для зчитування бінарників з Lambda Layer
-        images = convert_from_bytes(pdf_bytes, dpi=350, poppler_path=POPPLER_PATH)
+        # На AWS Lambda використовуємо poppler з Layer; локально — системний pdftoppm
+        if POPPLER_PATH:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
