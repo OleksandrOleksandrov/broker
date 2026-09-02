@@ -57,3 +57,15 @@ variable "openai_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "ld_library_path" {
+  description = "For using poppler custom layer"
+  type        = string
+  sensitive   = false
+}
+
+variable "poppler_path" {
+  description = "Path for popper"
+  type        = string
+  sensitive   = false
+}
