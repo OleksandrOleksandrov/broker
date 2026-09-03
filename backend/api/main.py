@@ -372,7 +372,7 @@ async def parse_application(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
-    dpi = 400
+    dpi = 350
     try:
         if POPPLER_PATH:
             images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
@@ -663,7 +663,7 @@ async def parse_cmr(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
-    dpi = 400
+    dpi = 350
     try:
         if POPPLER_PATH:
             images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
