@@ -1,6 +1,9 @@
-import React, { useState, ChangeEvent } from 'react';
+import React, { useState } from 'react';
 
-// 1. Інтерфейси TypeScript для строгої типізації даних
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+).replace(/\/$/, '');
+
 interface UktZedSuggestion {
   code: string;
   description: string;
@@ -29,20 +32,82 @@ interface InvoiceData {
   items: InvoiceItem[];
 }
 
+interface ApplicationData {
+  application_number?: string | null;
+  application_date?: string | null;
+  contract_number?: string | null;
+  contract_date?: string | null;
+  transport_type?: string | null;
+  route?: string | null;
+  shipper?: string | null;
+  loading_address?: string | null;
+  loading_datetime?: string | null;
+  cargo_name_and_packaging?: string | null;
+  cargo_quantity_and_dimensions?: string | null;
+  customs_outbound_address?: string | null;
+  border_crossing_point?: string | null;
+  customs_inbound_address?: string | null;
+  unloading_address?: string | null;
+  unloading_datetime?: string | null;
+  vehicle_requirements?: string | null;
+  vehicle_info?: string | null;
+  driver_info?: string | null;
+  customer_responsible_person?: string | null;
+  price_terms?: string | null;
+}
+
+interface FilePickerProps {
+  label: string;
+  accept?: string;
+  onChange: (file: File | null) => void;
+  selectedFile: File | null;
+  disabled?: boolean;
+}
+
+function FilePicker({
+  label,
+  accept,
+  onChange,
+  selectedFile,
+  disabled,
+}: FilePickerProps): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="relative inline-flex items-center">
+        <input
+          type="file"
+          accept={accept}
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              onChange(e.target.files[0]);
+            } else {
+              onChange(null);
+            }
+          }}
+          disabled={disabled}
+          className="hidden"
+        />
+        <span className="bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-800 font-semibold px-4 py-2 rounded cursor-pointer transition-colors">
+          {label}
+        </span>
+      </label>
+      <span className="text-sm text-gray-600 truncate">
+        {selectedFile ? selectedFile.name : 'Файл не обрано'}
+      </span>
+    </div>
+  );
+}
+
 export default function InvoiceParserApp(): React.JSX.Element {
-  // 2. Стейт компонента
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [data, setData] = useState<InvoiceData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parseUktzed, setParseUktzed] = useState<boolean>(false);
-
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
-    }
-  };
+  const [applicationFile, setApplicationFile] = useState<File | null>(null);
+  const [applicationData, setApplicationData] = useState<ApplicationData | null>(null);
+  const [applicationLoading, setApplicationLoading] = useState<boolean>(false);
+  const [applicationError, setApplicationError] = useState<string | null>(null);
 
   const handleUpload = async () => {
     if (!file) {
@@ -58,7 +123,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
     formData.append('parse_uktzed', String(parseUktzed));
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/parse-invoice`, {
+      const response = await fetch(`${API_BASE_URL}/api/parse-invoice`, {
         method: 'POST',
         body: formData,
       });
@@ -81,17 +146,47 @@ export default function InvoiceParserApp(): React.JSX.Element {
     }
   };
 
-  const downloadExcel = async () => {
-    if (!data) return;
-
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!apiUrl) {
-      setError('API_URL не задано');
+  const handleApplicationUpload = async () => {
+    if (!applicationFile) {
+      setApplicationError('Будь ласка, оберіть PDF-файл заявки');
       return;
     }
 
+    setApplicationLoading(true);
+    setApplicationError(null);
+
+    const formData = new FormData();
+    formData.append('file', applicationFile);
+
     try {
-      const response = await fetch(`${apiUrl}/api/export-excel`, {
+      const response = await fetch(`${API_BASE_URL}/api/parse-application`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Помилка при обробці заявки');
+      }
+
+      const result: ApplicationData = await response.json();
+      setApplicationData(result);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setApplicationError(err.message);
+      } else {
+        setApplicationError('Невідома помилка');
+      }
+    } finally {
+      setApplicationLoading(false);
+    }
+  };
+
+  const downloadExcel = async () => {
+    if (!data) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/export-excel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -124,20 +219,21 @@ export default function InvoiceParserApp(): React.JSX.Element {
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-gray-800">
-          Завантажте PDF-інвойс для обробки та отримання кодів УКТ ЗЕД
+          Завантажте PDF файли для обробки.
         </h1>
 
-        {/* Форма завантаження */}
+        {/* Форма завантаження інвойсу */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
           <label className="block text-gray-700 font-semibold mb-2">
             Завантажте PDF-інвойс:
           </label>
-          <div className="flex gap-4">
-            <input
-              type="file"
+          <div className="flex gap-4 items-center">
+            <FilePicker
+              label="Обрати PDF"
               accept="application/pdf"
-              onChange={handleFileChange}
-              className="border p-2 rounded w-full"
+              onChange={setFile}
+              selectedFile={file}
+              disabled={loading}
             />
             <button
               onClick={handleUpload}
@@ -205,21 +301,21 @@ export default function InvoiceParserApp(): React.JSX.Element {
           </div>
         )}
 
-            {/* Кнопка завантаження Excel */}
-            {/* {data && (
-              <div className="mb-8">
-                <button
-                  onClick={downloadExcel}
-                  className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2 rounded transition-colors"
-                >
-                  📥 Завантажити Excel
-                </button>
-              </div>
-            )} */}
+        {/* Кнопка завантаження Excel */}
+        {/* {data && (
+          <div className="mb-8">
+            <button
+              onClick={downloadExcel}
+              className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2 rounded transition-colors"
+            >
+              📥 Завантажити Excel
+            </button>
+          </div>
+        )} */}
 
         {/* Таблиця товарів */}
         {data && data.items && data.items.length > 0 && (
-          <div className="bg-white p-6 rounded-lg shadow-md">
+          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
             <h2 className="text-xl font-bold mb-4">
               Товари та підказки УКТ ЗЕД
             </h2>
@@ -264,6 +360,131 @@ export default function InvoiceParserApp(): React.JSX.Element {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Форма завантаження заявки */}
+        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+          <label className="block text-gray-700 font-semibold mb-2">
+            Завантажте PDF-транспортну заявку:
+          </label>
+          <div className="flex gap-4 items-center">
+            <FilePicker
+              label="Обрати PDF"
+              accept="application/pdf"
+              onChange={setApplicationFile}
+              selectedFile={applicationFile}
+              disabled={applicationLoading}
+            />
+            <button
+              onClick={handleApplicationUpload}
+              disabled={applicationLoading}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
+            >
+              {applicationLoading ? 'Обробка...' : 'Обробити'}
+            </button>
+          </div>
+
+          {applicationLoading && (
+            <div className="mt-4 text-blue-600 font-semibold">
+              Обробка транспортної заявки...
+            </div>
+          )}
+
+          {applicationError && (
+            <div className="mt-4 text-red-600 font-semibold">
+              {applicationError}
+            </div>
+          )}
+        </div>
+
+        {/* Результати заявки */}
+        {applicationData && (
+          <div className="bg-white p-6 rounded-lg shadow-md mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <span className="font-bold">№ Заявки:</span>{' '}
+              {applicationData.application_number || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Дата заявки:</span>{' '}
+              {applicationData.application_date || '-'}
+            </div>
+            <div>
+              <span className="font-bold">№ Договору:</span>{' '}
+              {applicationData.contract_number || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Дата договору:</span>{' '}
+              {applicationData.contract_date || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Вид перевезення:</span>{' '}
+              {applicationData.transport_type || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Маршрут:</span>{' '}
+              {applicationData.route || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Вантажовідправник:</span>{' '}
+              {applicationData.shipper || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Адреса завантаження:</span>{' '}
+              {applicationData.loading_address || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Дата/час завантаження:</span>{' '}
+              {applicationData.loading_datetime || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Вантаж (найменування, пакування):</span>{' '}
+              {applicationData.cargo_name_and_packaging || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Кількість/габарити/вага:</span>{' '}
+              {applicationData.cargo_quantity_and_dimensions || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Адреса замитнення:</span>{' '}
+              {applicationData.customs_outbound_address || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Пункт перетину кордону:</span>{' '}
+              {applicationData.border_crossing_point || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Адреса розмитнення:</span>{' '}
+              {applicationData.customs_inbound_address || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Адреса розвантаження:</span>{' '}
+              {applicationData.unloading_address || '-'}
+            </div>
+            <div>
+              <span className="font-bold">Дата/час розвантаження:</span>{' '}
+              {applicationData.unloading_datetime || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Вимоги до ТЗ:</span>{' '}
+              {applicationData.vehicle_requirements || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Транспортний засіб:</span>{' '}
+              {applicationData.vehicle_info || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Водій:</span>{' '}
+              {applicationData.driver_info || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Відповідальна особа Замовника:</span>{' '}
+              {applicationData.customer_responsible_person || '-'}
+            </div>
+            <div className="md:col-span-3">
+              <span className="font-bold">Ціна та умови:</span>{' '}
+              {applicationData.price_terms || '-'}
             </div>
           </div>
         )}

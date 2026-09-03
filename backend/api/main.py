@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import os
+import re
 from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -22,6 +23,10 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 # Lambda layer binary path for Poppler
 POPPLER_PATH = os.getenv("POPPLER_PATH")
 
+gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
+api_key = os.getenv("OPENAI_API_KEY")
+dpi = int(os.getenv("PDF_DPI", "350"))  # Default DPI for PDF to image conversion
+
 app = FastAPI(
     title="Broker AI Assistant",
     docs_url="/docs",
@@ -38,6 +43,147 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Suspicious tokens: e.g. "1/6", "25-6" — looks like a Cyrillic letter
+# ('б', 'А', 'В', ...) was misread as a digit. The original Ukrainian
+# numbering uses "<digits><sep><letter>" very commonly.
+_SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
+
+
+class PartyDetails(BaseModel):
+    name: Optional[str] = Field(default=None, description="Найменування компанії / ФОП")
+    address: Optional[str] = Field(
+        default=None, description="Юридична та фактична адреса"
+    )
+    edrpou: Optional[str] = Field(default=None, description="Код за ЄДРПОУ / ІПН")
+    ipn: Optional[str] = Field(
+        default=None, description="Індивідуальний податковий номер"
+    )
+    iban: Optional[str] = Field(default=None, description="Розрахунковий рахунок IBAN")
+    bank_name: Optional[str] = Field(
+        default=None, description="Назва банківської установи"
+    )
+    mfo: Optional[str] = Field(default=None, description="МФО банку")
+    email: Optional[str] = Field(default=None, description="Електронна адреса")
+    phone: Optional[str] = Field(default=None, description="Контактний номер телефону")
+    signatory_title: Optional[str] = Field(
+        default=None, description="Посада уповноваженої особи"
+    )
+    signatory_name: Optional[str] = Field(
+        default=None, description="ПІБ/ініціали уповноваженої особи"
+    )
+
+
+class ApplicationItem(BaseModel):
+    application_number: Optional[str] = Field(default=None, description="Номер заявки")
+    application_date: Optional[str] = Field(
+        default=None, description="Дата оформлення заявки"
+    )
+    contract_number: Optional[str] = Field(
+        default=None, description="Номер основного договору"
+    )
+    contract_date: Optional[str] = Field(
+        default=None, description="Дата основного договору"
+    )
+
+    transport_type: Optional[str] = Field(default=None, description="Вид перевезення")
+    route: Optional[str] = Field(default=None, description="Маршрут перевезення")
+    shipper: Optional[str] = Field(
+        default=None, description="Вантажовідправник (ПІБ, телефон, email)"
+    )
+    loading_address: Optional[str] = Field(
+        default=None, description="Адреса завантаження"
+    )
+    loading_address_source: Optional[str] = Field(
+        default=None,
+        description="Raw OCR substring from the document that loading_address was transcribed from",
+    )
+    loading_datetime: Optional[str] = Field(
+        default=None, description="Дата та час завантаження"
+    )
+    cargo_name_and_packaging: Optional[str] = Field(
+        default=None, description="Найменування та кількість вантажу, його пакування"
+    )
+    cargo_quantity_and_dimensions: Optional[str] = Field(
+        default=None, description="Кількість вантажних місць, габарити Д*Ш*В / вага"
+    )
+    customs_outbound_address: Optional[str] = Field(
+        default=None, description="Адреса замитнення, контактна особа"
+    )
+    customs_outbound_address_source: Optional[str] = Field(
+        default=None,
+        description="Raw OCR substring from the document that customs_outbound_address was transcribed from",
+    )
+    border_crossing_point: Optional[str] = Field(
+        default=None, description="Пункт перетину кордону"
+    )
+    customs_inbound_address: Optional[str] = Field(
+        default=None, description="Адреса розмитнення, контактна особа"
+    )
+    customs_inbound_address_source: Optional[str] = Field(
+        default=None,
+        description="Raw OCR substring from the document that customs_inbound_address was transcribed from",
+    )
+    unloading_address: Optional[str] = Field(
+        default=None, description="Адреса розвантаження"
+    )
+    unloading_address_source: Optional[str] = Field(
+        default=None,
+        description="Raw OCR substring from the document that unloading_address was transcribed from",
+    )
+    unloading_datetime: Optional[str] = Field(
+        default=None, description="Дата та час розвантаження"
+    )
+    vehicle_requirements: Optional[str] = Field(
+        default=None, description="Вимоги до транспортного засобу / тип кузова"
+    )
+    vehicle_info: Optional[str] = Field(
+        default=None, description="Транспортний засіб (номери авто та причепа)"
+    )
+    driver_info: Optional[str] = Field(
+        default=None,
+        description="Прізвище, ім'я, по батькові водія, посвідчення, телефон",
+    )
+    customer_responsible_person: Optional[str] = Field(
+        default=None, description="Відповідальна особа Замовника"
+    )
+    price_terms: Optional[str] = Field(
+        default=None, description="Ціна послуг, валюта та умови розрахунку"
+    )
+
+    customer_details: Optional[PartyDetails] = Field(
+        default=None, description="Юридичні реквізити Замовника"
+    )
+    carrier_details: Optional[PartyDetails] = Field(
+        default=None, description="Юридичні реквізити Перевізника"
+    )
+
+
+# Suspicious tokens: e.g. "1/6", "25-6" — looks like a Cyrillic letter
+# ('б', 'А', 'В', ...) was misread as a digit. The original Ukrainian
+# numbering uses "<digits><sep><letter>" very commonly.
+_SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
+
+_ADDRESS_FIELDS = (
+    "loading_address",
+    "customs_outbound_address",
+    "customs_inbound_address",
+    "unloading_address",
+)
+
+
+def find_suspicious_address_token(item: "ApplicationItem") -> Optional[str]:
+    """Return the first suspicious `<num>/<digit>` token across all address fields,
+    or None if no field has one."""
+    for name in _ADDRESS_FIELDS:
+        value = getattr(item, name, None)
+        if not value:
+            continue
+        m = _SUSPICIOUS_ADDRESS_TOKEN.search(value)
+        if m:
+            return m.group(0)
+    return None
 
 
 # 1. Pydantic схеми
@@ -104,6 +250,12 @@ def encode_image_to_base64(image: Image.Image) -> str:
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 
+def encode_lossless_image_to_base64(image: Image.Image) -> str:
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG", optimize=True)
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
 # 2. Функція підбору коду УКТ ЗЕД для конкретної позиції
 def get_uktzed_code(
     client: OpenAI, item_description: str, article: Optional[str]
@@ -111,7 +263,7 @@ def get_uktzed_code(
     prompt = f"Товар: {item_description}. Артикул: {article or 'не вказано'}."
 
     completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-11-20",
+        model=gpt_model,
         messages=[
             {
                 "role": "system",
@@ -132,7 +284,6 @@ async def parse_invoice(
     file: UploadFile = File(...),
     parse_uktzed: bool = Form(False),
 ):
-    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(
             status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
@@ -140,7 +291,6 @@ async def parse_invoice(
 
     client = OpenAI(api_key=api_key)
     pdf_bytes = await file.read()
-    dpi = 350  # Висока роздільна здатність для кращого OCR
     try:
         # На AWS Lambda використовуємо poppler з Layer; локально — системний pdftoppm
         if POPPLER_PATH:
@@ -168,7 +318,7 @@ async def parse_invoice(
 
     # Витягуємо дані інвойсу через Vision API
     completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-11-20",
+        model=gpt_model,
         messages=[
             {
                 "role": "system",
@@ -210,6 +360,93 @@ async def parse_invoice(
             item.uktzed_suggestion = None
 
     return parsed_data
+
+
+@app.post("/api/parse-application", response_model=ApplicationItem)
+async def parse_application(
+    file: UploadFile = File(...),
+):
+    if not api_key:
+        raise HTTPException(
+            status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
+        )
+
+    client = OpenAI(api_key=api_key)
+    pdf_bytes = await file.read()
+    try:
+        if POPPLER_PATH:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
+
+    content_payload = [
+        {
+            "type": "text",
+            "text": (
+                "Це українська заявка на перевезення вантажу (транспортна заявка). "
+                "Уважно витягни всі реквізити: номер і дату заявки, номер і дату договору, "
+                "маршрут, адреси завантаження/розвантаження/замитнення/розмитнення, дати та час, "
+                "дані про вантаж, транспортний засіб, водія, відповідальну особу Замовника, "
+                "ціну та юридичні реквізити обох сторін (Замовника і Перевізника). "
+                "Для кожної адреси (loading_address, customs_outbound_address, "
+                "customs_inbound_address, unloading_address) продублюй також точний "
+                "фрагмент тексту з документа, з якого ти її прочитав, у відповідному "
+                "*_source полі. Не вигадуй значень — якщо поле відсутнє, залиш null."
+            ),
+        }
+    ]
+
+    for img in images:
+        base64_img = encode_image_to_base64(img)
+        content_payload.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"},
+            }
+        )
+
+    system_prompt = (
+        "Ти професійний логіст. Точно зчитуй дані з документа без фантазування.\n"
+        "ПРАВИЛО ЩОДО АДРЕС: в українських номерах будинків після '/' або '-' зазвичай "
+        "стоїть ЛІТЕРА, а не цифра (1/б, 25-А, 48В). Копіюй символи як у документі, не "
+        "замінюй кириличні літери на схожі цифри.\n"
+        "Приклад: 'вул. Хмельницького, 1/б' — коректно як '1/б', НЕ як '1/6'."
+    )
+
+    def _extract(retry_hint: Optional[str] = None) -> ApplicationItem:
+        user_text = content_payload[0]["text"]
+        if retry_hint:
+            user_text = (
+                user_text + "\n\nУВАГА: попередня відповідь містила підозрілий токен "
+                f"{retry_hint!r} (цифра після '/' або '-' у номері будинку). "
+                "Перечитай адресу в документі та виправ її. Після '/' або '-' має стояти ЛІТЕРА."
+            )
+        payload = [{"type": "text", "text": user_text}, *content_payload[1:]]
+        completion = client.beta.chat.completions.parse(
+            model=gpt_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": payload},
+            ],
+            response_format=ApplicationItem,
+            temperature=0.0,
+        )
+        return completion.choices[0].message.parsed
+
+    parsed = _extract()
+    for _attempt in range(2):
+        offending = find_suspicious_address_token(parsed)
+        if not offending:
+            break
+        logger.warning(
+            "parse_application: suspicious address token %r, retrying with hint",
+            offending,
+        )
+        parsed = _extract(retry_hint=offending)
+
+    return parsed
 
 
 @app.post("/api/export-excel")
