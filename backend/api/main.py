@@ -40,6 +40,101 @@ app.add_middleware(
 )
 
 
+class PartyDetails(BaseModel):
+    name: Optional[str] = Field(default=None, description="Найменування компанії / ФОП")
+    address: Optional[str] = Field(
+        default=None, description="Юридична та фактична адреса"
+    )
+    edrpou: Optional[str] = Field(default=None, description="Код за ЄДРПОУ / ІПН")
+    ipn: Optional[str] = Field(
+        default=None, description="Індивідуальний податковий номер"
+    )
+    iban: Optional[str] = Field(default=None, description="Розрахунковий рахунок IBAN")
+    bank_name: Optional[str] = Field(
+        default=None, description="Назва банківської установи"
+    )
+    mfo: Optional[str] = Field(default=None, description="МФО банку")
+    email: Optional[str] = Field(default=None, description="Електронна адреса")
+    phone: Optional[str] = Field(default=None, description="Контактний номер телефону")
+    signatory_title: Optional[str] = Field(
+        default=None, description="Посада уповноваженої особи"
+    )
+    signatory_name: Optional[str] = Field(
+        default=None, description="ПІБ/ініціали уповноваженої особи"
+    )
+
+
+class ApplicationItem(BaseModel):
+    application_number: Optional[str] = Field(default=None, description="Номер заявки")
+    application_date: Optional[str] = Field(
+        default=None, description="Дата оформлення заявки"
+    )
+    contract_number: Optional[str] = Field(
+        default=None, description="Номер основного договору"
+    )
+    contract_date: Optional[str] = Field(
+        default=None, description="Дата основного договору"
+    )
+
+    transport_type: Optional[str] = Field(default=None, description="Вид перевезення")
+    route: Optional[str] = Field(default=None, description="Маршрут перевезення")
+    shipper: Optional[str] = Field(
+        default=None, description="Вантажовідправник (ПІБ, телефон, email)"
+    )
+    loading_address: Optional[str] = Field(
+        default=None, description="Адреса завантаження"
+    )
+    loading_datetime: Optional[str] = Field(
+        default=None, description="Дата та час завантаження"
+    )
+    cargo_name_and_packaging: Optional[str] = Field(
+        default=None, description="Найменування та кількість вантажу, його пакування"
+    )
+    cargo_quantity_and_dimensions: Optional[str] = Field(
+        default=None, description="Кількість вантажних місць, габарити Д*Ш*В / вага"
+    )
+    customs_outbound_address: Optional[str] = Field(
+        default=None, description="Адреса замитнення, контактна особа"
+    )
+    border_crossing_point: Optional[str] = Field(
+        default=None, description="Пункт перетину кордону"
+    )
+    customs_inbound_address: Optional[str] = Field(
+        default=None,
+        description="Адреса розмитнення, контактна особа, ЗВЕРНИ ОСОБЛИВУ УВАГУ НА АДРЕСИ: в українській нумерації будинків після скісної риски або дефісу часто йдуть літери (наприклад, 1/б, 25-А, 48В). КРИТИЧНО ВАЖЛИВО: строго розрізняй і не плутай кириличну малу літеру 'б' із цифрою '6'. Аналізуй візуальний контекст. Адреси можуть містити лише літери української абетки (а, б, в, г, ґ, д, е, є, ж, з, и, і, ї, й, к, л, м, н, о, п, р, с, т, у, ф, х, ц, ч, ш, щ, ь, ю, я), цифри та спецсимволи. Не вигадуй значень — якщо поле відсутнє, залиш null.",
+    )
+    unloading_address: Optional[str] = Field(
+        default=None,
+        description="Адреса розвантаження",
+    )
+    unloading_datetime: Optional[str] = Field(
+        default=None, description="Дата та час розвантаження"
+    )
+    vehicle_requirements: Optional[str] = Field(
+        default=None, description="Вимоги до транспортного засобу / тип кузова"
+    )
+    vehicle_info: Optional[str] = Field(
+        default=None, description="Транспортний засіб (номери авто та причепа)"
+    )
+    driver_info: Optional[str] = Field(
+        default=None,
+        description="Прізвище, ім'я, по батькові водія, посвідчення, телефон",
+    )
+    customer_responsible_person: Optional[str] = Field(
+        default=None, description="Відповідальна особа Замовника"
+    )
+    price_terms: Optional[str] = Field(
+        default=None, description="Ціна послуг, валюта та умови розрахунку"
+    )
+
+    customer_details: Optional[PartyDetails] = Field(
+        default=None, description="Юридичні реквізити Замовника"
+    )
+    carrier_details: Optional[PartyDetails] = Field(
+        default=None, description="Юридичні реквізити Перевізника"
+    )
+
+
 # 1. Pydantic схеми
 class UktZedSuggestion(BaseModel):
     code: str = Field(description="10-значний код УКТ ЗЕД (наприклад, 2710199900)")
@@ -101,6 +196,12 @@ class InvoiceData(BaseModel):
 def encode_image_to_base64(image: Image.Image) -> str:
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
+def encode_lossless_image_to_base64(image: Image.Image) -> str:
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG", optimize=True)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 
@@ -210,6 +311,71 @@ async def parse_invoice(
             item.uktzed_suggestion = None
 
     return parsed_data
+
+
+@app.post("/api/parse-application", response_model=ApplicationItem)
+async def parse_application(
+    file: UploadFile = File(...),
+):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
+        )
+
+    client = OpenAI(api_key=api_key)
+    pdf_bytes = await file.read()
+    dpi = 400
+    try:
+        if POPPLER_PATH:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
+
+    content_payload = [
+        {
+            "type": "text",
+            "text": (
+                "Це українська заявка на перевезення вантажу (транспортна заявка). "
+                "Уважно витягни всі реквізити: номер і дату заявки, номер і дату договору, "
+                "маршрут, адреси завантаження/розвантаження/замитнення/розмитнення, дати та час, "
+                "дані про вантаж, транспортний засіб, водія, відповідальну особу Замовника, "
+                "ціну та юридичні реквізити обох сторін (Замовника і Перевізника). "
+                "Не вигадуй значень — якщо поле відсутнє, залиш null."
+            ),
+        }
+    ]
+
+    for img in images:
+        base64_img = encode_lossless_image_to_base64(img)
+        content_payload.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{base64_img}"},
+            }
+        )
+
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-11-20",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Ти професійний логіст та експерт з обробки українських транспортних документів. "
+                    "Точно зчитуй дані з документів без фантазування. Якщо поле відсутнє або "
+                    "нерозбірливе — повертай null."
+                    "ЗВЕРНИ ОСОБЛИВУ УВАГУ НА АДРЕСИ: в українській нумерації будинків після скісної риски або дефісу часто йдуть літери (наприклад, 1/б, 25-А, 48В). КРИТИЧНО ВАЖЛИВО: строго розрізняй і не плутай кириличну малу літеру 'б' із цифрою '6'. Аналізуй візуальний контекст. Адреси можуть містити лише літери української абетки (а, б, в, г, ґ, д, е, є, ж, з, и, і, ї, й, к, л, м, н, о, п, р, с, т, у, ф, х, ц, ч, ш, щ, ь, ю, я), цифри та спецсимволи. Не вигадуй значень — якщо поле відсутнє, залиш null."
+                ),
+            },
+            {"role": "user", "content": content_payload},
+        ],
+        response_format=ApplicationItem,
+        temperature=0.0,
+    )
+
+    return completion.choices[0].message.parsed
 
 
 @app.post("/api/export-excel")
