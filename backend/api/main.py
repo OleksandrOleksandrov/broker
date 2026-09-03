@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import os
+import re
 from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -38,6 +39,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Suspicious tokens: e.g. "1/6", "25-6" — looks like a Cyrillic letter
+# ('б', 'А', 'В', ...) was misread as a digit. The original Ukrainian
+# numbering uses "<digits><sep><letter>" very commonly.
+_SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
 
 
 class PartyDetails(BaseModel):
@@ -84,6 +91,10 @@ class ApplicationItem(BaseModel):
     loading_address: Optional[str] = Field(
         default=None, description="Адреса завантаження"
     )
+    loading_address_source: Optional[str] = Field(
+        default=None,
+        description="Raw OCR substring from the document that loading_address was transcribed from",
+    )
     loading_datetime: Optional[str] = Field(
         default=None, description="Дата та час завантаження"
     )
@@ -96,16 +107,26 @@ class ApplicationItem(BaseModel):
     customs_outbound_address: Optional[str] = Field(
         default=None, description="Адреса замитнення, контактна особа"
     )
+    customs_outbound_address_source: Optional[str] = Field(
+        default=None,
+        description="Raw OCR substring from the document that customs_outbound_address was transcribed from",
+    )
     border_crossing_point: Optional[str] = Field(
         default=None, description="Пункт перетину кордону"
     )
     customs_inbound_address: Optional[str] = Field(
+        default=None, description="Адреса розмитнення, контактна особа"
+    )
+    customs_inbound_address_source: Optional[str] = Field(
         default=None,
-        description="Адреса розмитнення, контактна особа, ЗВЕРНИ ОСОБЛИВУ УВАГУ НА АДРЕСИ: в українській нумерації будинків після скісної риски або дефісу часто йдуть літери (наприклад, 1/б, 25-А, 48В). КРИТИЧНО ВАЖЛИВО: строго розрізняй і не плутай кириличну малу літеру 'б' із цифрою '6'. Аналізуй візуальний контекст. Адреси можуть містити лише літери української абетки (а, б, в, г, ґ, д, е, є, ж, з, и, і, ї, й, к, л, м, н, о, п, р, с, т, у, ф, х, ц, ч, ш, щ, ь, ю, я), цифри та спецсимволи. Не вигадуй значень — якщо поле відсутнє, залиш null.",
+        description="Raw OCR substring from the document that customs_inbound_address was transcribed from",
     )
     unloading_address: Optional[str] = Field(
+        default=None, description="Адреса розвантаження"
+    )
+    unloading_address_source: Optional[str] = Field(
         default=None,
-        description="Адреса розвантаження",
+        description="Raw OCR substring from the document that unloading_address was transcribed from",
     )
     unloading_datetime: Optional[str] = Field(
         default=None, description="Дата та час розвантаження"
@@ -133,6 +154,32 @@ class ApplicationItem(BaseModel):
     carrier_details: Optional[PartyDetails] = Field(
         default=None, description="Юридичні реквізити Перевізника"
     )
+
+
+# Suspicious tokens: e.g. "1/6", "25-6" — looks like a Cyrillic letter
+# ('б', 'А', 'В', ...) was misread as a digit. The original Ukrainian
+# numbering uses "<digits><sep><letter>" very commonly.
+_SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
+
+_ADDRESS_FIELDS = (
+    "loading_address",
+    "customs_outbound_address",
+    "customs_inbound_address",
+    "unloading_address",
+)
+
+
+def find_suspicious_address_token(item: "ApplicationItem") -> Optional[str]:
+    """Return the first suspicious `<num>/<digit>` token across all address fields,
+    or None if no field has one."""
+    for name in _ADDRESS_FIELDS:
+        value = getattr(item, name, None)
+        if not value:
+            continue
+        m = _SUSPICIOUS_ADDRESS_TOKEN.search(value)
+        if m:
+            return m.group(0)
+    return None
 
 
 # 1. Pydantic схеми
@@ -343,39 +390,63 @@ async def parse_application(
                 "маршрут, адреси завантаження/розвантаження/замитнення/розмитнення, дати та час, "
                 "дані про вантаж, транспортний засіб, водія, відповідальну особу Замовника, "
                 "ціну та юридичні реквізити обох сторін (Замовника і Перевізника). "
-                "Не вигадуй значень — якщо поле відсутнє, залиш null."
+                "Для кожної адреси (loading_address, customs_outbound_address, "
+                "customs_inbound_address, unloading_address) продублюй також точний "
+                "фрагмент тексту з документа, з якого ти її прочитав, у відповідному "
+                "*_source полі. Не вигадуй значень — якщо поле відсутнє, залиш null."
             ),
         }
     ]
 
     for img in images:
-        base64_img = encode_lossless_image_to_base64(img)
+        base64_img = encode_image_to_base64(img)
         content_payload.append(
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{base64_img}"},
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"},
             }
         )
 
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-11-20",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Ти професійний логіст та експерт з обробки українських транспортних документів. "
-                    "Точно зчитуй дані з документів без фантазування. Якщо поле відсутнє або "
-                    "нерозбірливе — повертай null."
-                    "ЗВЕРНИ ОСОБЛИВУ УВАГУ НА АДРЕСИ: в українській нумерації будинків після скісної риски або дефісу часто йдуть літери (наприклад, 1/б, 25-А, 48В). КРИТИЧНО ВАЖЛИВО: строго розрізняй і не плутай кириличну малу літеру 'б' із цифрою '6'. Аналізуй візуальний контекст. Адреси можуть містити лише літери української абетки (а, б, в, г, ґ, д, е, є, ж, з, и, і, ї, й, к, л, м, н, о, п, р, с, т, у, ф, х, ц, ч, ш, щ, ь, ю, я), цифри та спецсимволи. Не вигадуй значень — якщо поле відсутнє, залиш null."
-                ),
-            },
-            {"role": "user", "content": content_payload},
-        ],
-        response_format=ApplicationItem,
-        temperature=0.0,
+    system_prompt = (
+        "Ти професійний логіст. Точно зчитуй дані з документа без фантазування.\n"
+        "ПРАВИЛО ЩОДО АДРЕС: в українських номерах будинків після '/' або '-' зазвичай "
+        "стоїть ЛІТЕРА, а не цифра (1/б, 25-А, 48В). Копіюй символи як у документі, не "
+        "замінюй кириличні літери на схожі цифри.\n"
+        "Приклад: 'вул. Хмельницького, 1/б' — коректно як '1/б', НЕ як '1/6'."
     )
 
-    return completion.choices[0].message.parsed
+    def _extract(retry_hint: Optional[str] = None) -> ApplicationItem:
+        user_text = content_payload[0]["text"]
+        if retry_hint:
+            user_text = (
+                user_text + "\n\nУВАГА: попередня відповідь містила підозрілий токен "
+                f"{retry_hint!r} (цифра після '/' або '-' у номері будинку). "
+                "Перечитай адресу в документі та виправ її. Після '/' або '-' має стояти ЛІТЕРА."
+            )
+        payload = [{"type": "text", "text": user_text}, *content_payload[1:]]
+        completion = client.beta.chat.completions.parse(
+            model="gpt-4o-2024-11-20",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": payload},
+            ],
+            response_format=ApplicationItem,
+            temperature=0.0,
+        )
+        return completion.choices[0].message.parsed
+
+    parsed = _extract()
+    for _attempt in range(2):
+        offending = find_suspicious_address_token(parsed)
+        if not offending:
+            break
+        logger.warning(
+            "parse_application: suspicious address token %r, retrying with hint",
+            offending,
+        )
+        parsed = _extract(retry_hint=offending)
+
+    return parsed
 
 
 @app.post("/api/export-excel")
