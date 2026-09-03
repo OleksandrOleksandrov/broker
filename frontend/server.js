@@ -45,6 +45,35 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+app.post('/upload-cmr', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не завантажено' });
+    }
+
+    const formData = new FormData();
+    formData.append('file', req.file.buffer, {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+    });
+
+    const response = await fetch(`${FASTAPI_URL}/api/parse-cmr`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Помилка FastAPI: ${errText}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Node.js Frontend запущено на http://localhost:${PORT}`);
