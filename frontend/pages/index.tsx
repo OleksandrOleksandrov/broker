@@ -19,6 +19,7 @@ interface InvoiceItem {
   price_per_unit: number;
   total_amount: number;
   country_of_origin?: string | null;
+  net_weight_kg?: number | null;
   uktzed_suggestion?: UktZedSuggestion | null;
 }
 
@@ -105,6 +106,26 @@ interface CMRDocument {
   consignee_signature_and_stamp?: string | null;
 }
 
+interface CombinedSummary {
+  contract?: string | null;
+  net_weight_kg?: number | null;
+  border_crossing_point?: string | null;
+  carrier?: string | null;
+  nomenclature: string[];
+  unloading_city?: string | null;
+  invoice_number?: string | null;
+  vn_number_pd?: string | null;
+  vehicle_number?: string | null;
+  tax_document_number?: string | null;
+}
+
+interface CombinedDocumentData {
+  summary: CombinedSummary;
+  invoice: InvoiceData;
+  application: ApplicationData;
+  cmr: CMRDocument;
+}
+
 export default function InvoiceParserApp(): React.JSX.Element {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -119,6 +140,71 @@ export default function InvoiceParserApp(): React.JSX.Element {
   const [cmrData, setCmrData] = useState<CMRDocument | null>(null);
   const [cmrLoading, setCmrLoading] = useState<boolean>(false);
   const [cmrError, setCmrError] = useState<string | null>(null);
+  const [combinedLoading, setCombinedLoading] = useState<boolean>(false);
+  const [combinedError, setCombinedError] = useState<string | null>(null);
+  const [combinedSummary, setCombinedSummary] = useState<CombinedSummary | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [maxSizeKb, setMaxSizeKb] = useState<number>(500);
+  const [removeColor, setRemoveColor] = useState<boolean>(true);
+  const [pdfLoading, setPdfLoading] = useState<boolean>(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfSuccess, setPdfSuccess] = useState<string | null>(null);
+
+  const handlePdfFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setPdfFile(e.target.files[0]);
+      setPdfError(null);
+      setPdfSuccess(null);
+    }
+  };
+
+  const handlePdfUpload = async () => {
+    if (!pdfFile) {
+      setPdfError('Будь ласка, оберіть PDF-файл');
+      return;
+    }
+
+    setPdfLoading(true);
+    setPdfError(null);
+    setPdfSuccess(null);
+
+    const formData = new FormData();
+    formData.append('file', pdfFile);
+    formData.append('max_size_kb', String(maxSizeKb));
+    formData.append('remove_color', String(removeColor));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/compress-pdf`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Помилка при стисненні PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compressed_${pdfFile.name}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setPdfSuccess('PDF успішно стиснуто та завантажено');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setPdfError(err.message);
+      } else {
+        setPdfError('Невідома помилка при стисненні PDF');
+      }
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -243,6 +329,44 @@ export default function InvoiceParserApp(): React.JSX.Element {
     }
   };
 
+  const handleCombinedUpload = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const invoiceFile = formData.get('invoice_file');
+    const applicationFile = formData.get('application_file');
+    const cmrFile = formData.get('cmr_file');
+    if (!(invoiceFile instanceof File) || !(applicationFile instanceof File) || !(cmrFile instanceof File)) {
+      setCombinedError('Будь ласка, оберіть усі три PDF-файли');
+      return;
+    }
+
+    setCombinedLoading(true);
+    setCombinedError(null);
+    try {
+      formData.append('parse_uktzed', String(parseUktzed));
+      const response = await fetch(`${API_BASE_URL}/api/parse-transport-documents`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Помилка при обробці документів');
+      }
+      const result: CombinedDocumentData = await response.json();
+      setCombinedSummary(result.summary);
+      setData(result.invoice);
+      setApplicationData(result.application);
+      setCmrData(result.cmr);
+      setError(null);
+      setApplicationError(null);
+      setCmrError(null);
+    } catch (err: unknown) {
+      setCombinedError(err instanceof Error ? err.message : 'Невідома помилка');
+    } finally {
+      setCombinedLoading(false);
+    }
+  };
+
   const downloadExcel = async () => {
     if (!data) return;
 
@@ -276,12 +400,155 @@ export default function InvoiceParserApp(): React.JSX.Element {
     }
   };
 
+    const copyCombinedToClipboard = async () => {
+    if (!combinedSummary) return;
+
+    const val = (v: unknown): string =>
+      v === null || v === undefined || v === '' ? '-' : String(v);
+
+    const row = [
+      val(combinedSummary.contract),
+      val(""),
+      val(combinedSummary.net_weight_kg),
+      val(combinedSummary.border_crossing_point),
+      val(combinedSummary.carrier),
+      val(combinedSummary.nomenclature.join(', ')),
+      val(combinedSummary.unloading_city),
+      val(""),
+      val(combinedSummary.vehicle_number),
+    ].join('\t');
+
+    try {
+      await navigator.clipboard.writeText(row);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      setError('Не вдалося скопіювати в буфер обміну');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-gray-800">
           Завантажте PDF-інвойс для обробки та отримання кодів УКТ ЗЕД
         </h1>
+
+        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Стиснути PDF</h2>
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-gray-700 font-semibold mb-2">
+                Завантажте PDF-файл:
+              </label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handlePdfFileChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-700 font-semibold mb-2">
+                Макс. розмір (KB):
+              </label>
+              <input
+                type="number"
+                value={maxSizeKb}
+                onChange={(e) => setMaxSizeKb(Number(e.target.value))}
+                min="1"
+                className="border p-2 rounded w-32"
+              />
+              <label className="flex items-center gap-2 text-gray-700 cursor-pointer select-none mt-5">
+                <input
+                  type="checkbox"
+                  checked={removeColor}
+                  onChange={(e) => setRemoveColor(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="font-semibold">Remove color</span>
+              </label>
+            </div>
+            <button
+              onClick={handlePdfUpload}
+              disabled={pdfLoading}
+              className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white font-bold px-6 py-2 rounded transition-colors"
+            >
+              {pdfLoading ? 'Стиснення...' : 'Стиснути'}
+            </button>
+          </div>
+          {pdfLoading && (
+            <div className="mt-4 text-purple-600 font-semibold">
+              Стиснення PDF...
+            </div>
+          )}
+          {pdfError && (
+            <div className="mt-4 text-red-600 font-semibold">
+              {pdfError}
+            </div>
+          )}
+          {pdfSuccess && (
+            <div className="mt-4 text-green-600 font-semibold">
+              {pdfSuccess}
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleCombinedUpload} className="bg-blue-50 p-6 rounded-lg shadow-md mb-8">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">
+            Обробити комплект документів
+          </h2>
+          <p className="mb-4 text-gray-600">
+            Завантажте інвойс, транспортну заявку та CMR одним запитом.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <label className="font-semibold text-gray-700">
+              Інвойс
+              <input name="invoice_file" type="file" accept="application/pdf" required className="block border p-2 rounded w-full mt-2 bg-white" />
+            </label>
+            <label className="font-semibold text-gray-700">
+              Транспортна заявка
+              <input name="application_file" type="file" accept="application/pdf" required className="block border p-2 rounded w-full mt-2 bg-white" />
+            </label>
+            <label className="font-semibold text-gray-700">
+              CMR
+              <input name="cmr_file" type="file" accept="application/pdf" required className="block border p-2 rounded w-full mt-2 bg-white" />
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={combinedLoading}
+            className="mt-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold px-6 py-2 rounded transition-colors"
+          >
+            {combinedLoading ? 'Обробка трьох документів...' : 'Обробити комплект'}
+          </button>
+          {combinedLoading && <div className="mt-4 text-blue-600 font-semibold">Розпізнавання документів...</div>}
+          {combinedError && <div className="mt-4 text-red-600 font-semibold">{combinedError}</div>}
+        </form>
+
+        {combinedSummary && (
+          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">Зведені дані документів</h2>
+            <button
+                onClick={copyCombinedToClipboard}
+                className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded transition-colors text-sm"
+              >
+                {copied ? '✅ Скопійовано!' : '📋 Копіювати в Google Sheets'}
+              </button>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div><span className="font-bold">Контракт:</span> {combinedSummary.contract || '-'}</div>
+              <div><span className="font-bold">Маса нетто, кг:</span> {combinedSummary.net_weight_kg ?? '-'}</div>
+              <div><span className="font-bold">ПП:</span> {combinedSummary.border_crossing_point || '-'}</div>
+              <div><span className="font-bold">Перевізник:</span> {combinedSummary.carrier || '-'}</div>
+              <div className="md:col-span-2"><span className="font-bold">Номенклатура:</span> {combinedSummary.nomenclature.join(', ') || '-'}</div>
+              <div><span className="font-bold">Місто розвантаження:</span> {combinedSummary.unloading_city || '-'}</div>
+              <div><span className="font-bold">ВН номер (ПД):</span> {combinedSummary.vn_number_pd || '-'}</div>
+              <div><span className="font-bold">Номер машини:</span> {combinedSummary.vehicle_number || '-'}</div>
+              <div><span className="font-bold">ПД:</span> {combinedSummary.tax_document_number || '-'}</div>
+            </div>
+          </div>
+        )}
 
         {/* Форма завантаження інвойсу */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
