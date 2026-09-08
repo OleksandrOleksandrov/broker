@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from openai import OpenAI
-import pandas as pd
+from openai import AsyncOpenAI, OpenAI
+from openpyxl import Workbook
 from pdf2image import convert_from_bytes
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -249,7 +249,7 @@ class InvoiceItem(BaseModel):
     country_of_origin: Optional[str] = Field(
         default=None, description="Країна походження товару"
     )
-    net_weight_kg: Optional[float] = Field(
+    net_weight_kg: Optional[int] = Field(
         default=None, description="Маса нетто позиції в кілограмах"
     )
     uktzed_suggestion: Optional[UktZedSuggestion] = Field(
@@ -294,6 +294,27 @@ def encode_image_to_base64(image: Image.Image) -> str:
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
+async def convert_pdf_to_images(pdf_bytes: bytes, dpi: int) -> list[Image.Image]:
+    """Run the blocking Poppler conversion outside the event loop."""
+    kwargs = {"dpi": dpi}
+    if POPPLER_PATH:
+        kwargs["poppler_path"] = POPPLER_PATH
+    return await asyncio.to_thread(convert_from_bytes, pdf_bytes, **kwargs)
+
+
+async def build_image_payload(images: list[Image.Image]) -> list[dict]:
+    encoded_images = await asyncio.gather(
+        *(asyncio.to_thread(encode_image_to_base64, image) for image in images)
+    )
+    return [
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"},
+        }
+        for encoded_image in encoded_images
+    ]
 
 
 def encode_lossless_image_to_base64(image: Image.Image) -> str:
@@ -342,7 +363,7 @@ async def parse_invoice(
             status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
         )
 
-    client = OpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key)
     pdf_bytes = await file.read()
     logger.info(
         "Parsing invoice file=%s size=%d bytes parse_uktzed=%s",
@@ -352,7 +373,7 @@ async def parse_invoice(
     )
     try:
         # Вказуємо poppler_path для зчитування бінарників з Lambda Layer
-        images = convert_from_bytes(pdf_bytes, dpi=350, poppler_path=POPPLER_PATH)
+        images = await convert_pdf_to_images(pdf_bytes, dpi=350)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
@@ -367,18 +388,11 @@ async def parse_invoice(
         }
     ]
 
-    for img in images:
-        base64_img = encode_image_to_base64(img)
-        content_payload.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"},
-            }
-        )
+    content_payload.extend(await build_image_payload(images))
 
     # Витягуємо дані інвойсу через Vision API
     try:
-        completion = client.beta.chat.completions.parse(
+        completion = await client.beta.chat.completions.parse(
             model=gpt_model,
             messages=[
                 {
@@ -436,14 +450,11 @@ async def parse_application(
             status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
         )
 
-    client = OpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key)
     pdf_bytes = await file.read()
     dpi = DPI
     try:
-        if POPPLER_PATH:
-            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
-        else:
-            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        images = await convert_pdf_to_images(pdf_bytes, dpi=dpi)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
@@ -464,14 +475,7 @@ async def parse_application(
         }
     ]
 
-    for img in images:
-        base64_img = encode_image_to_base64(img)
-        content_payload.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"},
-            }
-        )
+    content_payload.extend(await build_image_payload(images))
 
     system_prompt = (
         "Ти професійний логіст. Точно зчитуй дані з документа без фантазування.\n"
@@ -481,7 +485,7 @@ async def parse_application(
         "Приклад: 'вул. Хмельницького, 1/б' — коректно як '1/б', НЕ як '1/6'."
     )
 
-    def _extract(retry_hint: Optional[str] = None) -> ApplicationItem:
+    async def _extract(retry_hint: Optional[str] = None) -> ApplicationItem:
         user_text = content_payload[0]["text"]
         if retry_hint:
             user_text = (
@@ -490,7 +494,7 @@ async def parse_application(
                 "Перечитай адресу в документі та виправ її. Після '/' або '-' має стояти ЛІТЕРА."
             )
         payload = [{"type": "text", "text": user_text}, *content_payload[1:]]
-        completion = client.beta.chat.completions.parse(
+        completion = await client.beta.chat.completions.parse(
             model=gpt_model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -501,7 +505,7 @@ async def parse_application(
         )
         return completion.choices[0].message.parsed
 
-    parsed = _extract()
+    parsed = await _extract()
     for _attempt in range(2):
         offending = find_suspicious_address_token(parsed)
         if not offending:
@@ -510,7 +514,7 @@ async def parse_application(
             "parse_application: suspicious address token %r, retrying with hint",
             offending,
         )
-        parsed = _extract(retry_hint=offending)
+        parsed = await _extract(retry_hint=offending)
 
     return parsed
 
@@ -536,11 +540,30 @@ async def export_excel(data: InvoiceData):
             }
         )
 
-    df = pd.DataFrame(rows)
-
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Specification")
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Specification"
+    headers = (
+        list(rows[0])
+        if rows
+        else [
+            "№",
+            "Артикул",
+            "Найменування товару (Графа 31)",
+            "Код УКТ ЗЕД (Графа 33)",
+            "Кількість",
+            "Од. виміру",
+            "Ціна",
+            "Фактурна вартість",
+            "Країна походження",
+            "Валюта",
+        ]
+    )
+    worksheet.append(headers)
+    for row in rows:
+        worksheet.append([row[header] for header in headers])
+    workbook.save(output)
     output.seek(0)
 
     headers = {
@@ -849,7 +872,7 @@ class CMRDocument(BaseModel):
 
 class CombinedDocumentSummary(BaseModel):
     contract: Optional[str] = Field(default=None, description="Номер контракту")
-    net_weight_kg: Optional[float] = Field(
+    net_weight_kg: Optional[int] = Field(
         default=None, description="Загальна маса нетто в кілограмах"
     )
     border_crossing_point: Optional[str] = Field(
@@ -890,14 +913,11 @@ async def parse_cmr(
             status_code=500, detail="OPENAI_API_KEY не знайдено в оточенні"
         )
 
-    client = OpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key)
     pdf_bytes = await file.read()
     dpi = DPI
     try:
-        if POPPLER_PATH:
-            images = convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH)
-        else:
-            images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        images = await convert_pdf_to_images(pdf_bytes, dpi=dpi)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Помилка зчитування PDF: {str(e)}")
 
@@ -918,16 +938,9 @@ async def parse_cmr(
         }
     ]
 
-    for img in images:
-        base64_img = encode_image_to_base64(img)
-        content_payload.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"},
-            }
-        )
+    content_payload.extend(await build_image_payload(images))
 
-    completion = client.beta.chat.completions.parse(
+    completion = await client.beta.chat.completions.parse(
         model=gpt_model,
         messages=[
             {
@@ -999,7 +1012,7 @@ async def parse_transport_documents(
 class TransportDocumentsRow(BaseModel):
     contract: str = ""
     blank_1: str = ""
-    net_weight_kg: str = ""
+    net_weight_kg: int = 0
     border_crossing_point: str = ""
     carrier: str = ""
     nomenclature: str = ""

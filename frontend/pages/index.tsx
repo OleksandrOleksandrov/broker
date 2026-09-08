@@ -553,112 +553,112 @@ export default function InvoiceParserApp(): React.JSX.Element {
               Завантажте PDF-файл для стиснення:
             </label>
             <div className="flex flex-col gap-4">
-            <div className="flex gap-4 items-center">
-              <FilePicker
-                label="Обрати PDF"
-                accept="application/pdf"
-                onChange={setPdfFile}
-                selectedFile={pdfFile}
-                disabled={pdfLoading}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 font-semibold mb-2">
-                Макс. розмір (KB):
+              <div className="flex gap-4 items-center">
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setPdfFile}
+                  selectedFile={pdfFile}
+                  disabled={pdfLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 font-semibold mb-2">
+                  Макс. розмір (KB):
+                </label>
+                <input
+                  type="number"
+                  value={maxSizeKb}
+                  onChange={(e) => setMaxSizeKb(Number(e.target.value))}
+                  min="1"
+                  className="border p-2 rounded w-32"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-gray-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={removeColor}
+                  onChange={(e) => setRemoveColor(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-semibold">Remove color</span>
               </label>
-              <input
-                type="number"
-                value={maxSizeKb}
-                onChange={(e) => setMaxSizeKb(Number(e.target.value))}
-                min="1"
-                className="border p-2 rounded w-32"
-              />
+              <button
+                onClick={handlePdfUpload}
+                disabled={pdfLoading}
+                className="mt-4 w-48 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
+              >
+                {pdfLoading ? 'Стиснення...' : 'Стиснути'}
+              </button>
             </div>
-            <label className="flex items-center gap-2 text-gray-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={removeColor}
-                onChange={(e) => setRemoveColor(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-              />
-              <span className="font-semibold">Remove color</span>
-            </label>
-            <button
-              onClick={handlePdfUpload}
-              disabled={pdfLoading}
-              className="mt-4 w-48 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
-            >
-              {pdfLoading ? 'Стиснення...' : 'Стиснути'}
-            </button>
+            {pdfLoading && (
+              <div className="mt-4 text-blue-600 font-semibold">
+                Стиснення PDF...
+              </div>
+            )}
+            {pdfError && (
+              <div className="mt-4 text-red-600 font-semibold">
+                {pdfError}
+              </div>
+            )}
+            {pdfSuccess && (
+              <div className="mt-4 text-green-600 font-semibold">
+                {pdfSuccess}
+              </div>
+            )}
           </div>
-          {pdfLoading && (
-            <div className="mt-4 text-purple-600 font-semibold">
-              Стиснення PDF...
-            </div>
-          )}
-          {pdfError && (
-            <div className="mt-4 text-red-600 font-semibold">
-              {pdfError}
-            </div>
-          )}
-          {pdfSuccess && (
-            <div className="mt-4 text-green-600 font-semibold">
-              {pdfSuccess}
-            </div>
-          )}
-        </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-md flex-1">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">
-            Обробити комплект документів
-          </h2>
-          <p className="mb-4 text-gray-600">
-            Завантажте інвойс, транспортну заявку та CMR одним запитом.
-          </p>
-          <div className="flex flex-col gap-4">
-            <label className="font-semibold text-gray-700">
-              Інвойс
-              <FilePicker
-                label="Обрати PDF"
-                accept="application/pdf"
-                onChange={setCombinedInvoiceFile}
-                selectedFile={combinedInvoiceFile}
-                disabled={combinedLoading}
-              />
-            </label>
-            <label className="font-semibold text-gray-700">
-              Транспортна заявка
-              <FilePicker
-                label="Обрати PDF"
-                accept="application/pdf"
-                onChange={setCombinedApplicationFile}
-                selectedFile={combinedApplicationFile}
-                disabled={combinedLoading}
-              />
-            </label>
-            <label className="font-semibold text-gray-700">
-              CMR
-              <FilePicker
-                label="Обрати PDF"
-                accept="application/pdf"
-                onChange={setCombinedCmrFile}
-                selectedFile={combinedCmrFile}
-                disabled={combinedLoading}
-              />
-            </label>
+          <div className="bg-white p-6 rounded-lg shadow-md flex-1">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">
+              Обробити комплект документів
+            </h2>
+            <p className="mb-4 text-gray-600">
+              Завантажте інвойс, транспортну заявку та CMR одним запитом.
+            </p>
+            <div className="flex flex-col gap-4">
+              <label className="font-semibold text-gray-700">
+                Інвойс
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setCombinedInvoiceFile}
+                  selectedFile={combinedInvoiceFile}
+                  disabled={combinedLoading}
+                />
+              </label>
+              <label className="font-semibold text-gray-700">
+                Транспортна заявка
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setCombinedApplicationFile}
+                  selectedFile={combinedApplicationFile}
+                  disabled={combinedLoading}
+                />
+              </label>
+              <label className="font-semibold text-gray-700">
+                CMR
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setCombinedCmrFile}
+                  selectedFile={combinedCmrFile}
+                  disabled={combinedLoading}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={handleCombinedUpload}
+              disabled={combinedLoading}
+              className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
+            >
+              {combinedLoading ? 'Обробка трьох документів...' : 'Обробити комплект'}
+            </button>
+            {combinedLoading && <div className="mt-4 text-blue-600 font-semibold">Розпізнавання документів...</div>}
+            {combinedError && <div className="mt-4 text-red-600 font-semibold">{combinedError}</div>}
           </div>
-          <button
-            type="button"
-            onClick={handleCombinedUpload}
-            disabled={combinedLoading}
-            className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
-          >
-            {combinedLoading ? 'Обробка трьох документів...' : 'Обробити комплект'}
-          </button>
-          {combinedLoading && <div className="mt-4 text-blue-600 font-semibold">Розпізнавання документів...</div>}
-          {combinedError && <div className="mt-4 text-red-600 font-semibold">{combinedError}</div>}
         </div>
-      </div>
 
         {combinedSummary && (
           <div className="bg-white p-6 rounded-lg shadow-md mb-8">

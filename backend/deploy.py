@@ -281,6 +281,11 @@ def deploy_terraform(environment: str = "dev"):
     else:
         print("  ✅ S3 backend initialized successfully")
 
+    # Adopt resources that may have been created by an earlier deployment.
+    # This keeps redeployments from failing when the remote state was replaced
+    # or is being initialized for the first time.
+    import_existing_resources(terraform_dir, environment)
+
     # Build terraform plan/apply args based on environment
     terraform_args = []
     if environment == "prod":
@@ -304,6 +309,70 @@ def deploy_terraform(environment: str = "dev"):
     )
 
     return json.loads(outputs)
+
+
+def import_existing_resources(terraform_dir: Path, environment: str):
+    """Import known environment resources when they are not in Terraform state."""
+    project_name = os.environ.get("PROJECT_NAME", "broker")
+    name_prefix = f"{project_name}-{environment}"
+    resources = {
+        "aws_s3_bucket.memory": f"{name_prefix}-memory-{get_aws_account_id()}",
+        "aws_s3_bucket.frontend": f"{name_prefix}-frontend-{get_aws_account_id()}",
+        "aws_iam_role.lambda_role": f"{name_prefix}-lambda-role",
+        "aws_lambda_function.api": f"{name_prefix}-api",
+        "aws_lambda_permission.api_gw": (
+            f"{name_prefix}-api/AllowExecutionFromAPIGateway"
+        ),
+    }
+
+    state_result = subprocess.run(
+        ["terraform", "state", "list"],
+        cwd=terraform_dir,
+        capture_output=True,
+        text=True,
+    )
+    if state_result.returncode != 0:
+        print(f"  ❌ Unable to inspect Terraform state:\n{state_result.stderr}")
+        sys.exit(1)
+
+    managed_resources = set(state_result.stdout.splitlines())
+    for address, resource_id in resources.items():
+        if address in managed_resources:
+            continue
+
+        print(f"  Checking whether existing resource can be adopted: {address}")
+        import_result = subprocess.run(
+            ["terraform", "import", address, resource_id],
+            cwd=terraform_dir,
+            capture_output=True,
+            text=True,
+        )
+        if import_result.returncode == 0:
+            print(f"  ✅ Imported {address}")
+            continue
+
+        if "Cannot import non-existent remote object" in import_result.stderr:
+            print(f"  Resource {address} does not exist; Terraform will create it.")
+            continue
+
+        print(f"  ❌ Failed to import {address}:\n{import_result.stderr}")
+        sys.exit(1)
+
+
+def get_aws_account_id() -> str:
+    """Return the account ID used in environment resource names."""
+    return run_command(
+        [
+            "aws",
+            "sts",
+            "get-caller-identity",
+            "--query",
+            "Account",
+            "--output",
+            "text",
+        ],
+        capture_output=True,
+    )
 
 
 def upload_frontend(bucket_name, cloudfront_id):
