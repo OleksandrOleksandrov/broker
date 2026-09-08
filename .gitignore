@@ -222,6 +222,7 @@ terraform.tfstate.d/
 
 # Lambda deployment packages
 lambda_function.zip
+backend/lambda-deployment.zip
 
 # ignore all Lambda zips:
 backend/**/*_lambda.zip

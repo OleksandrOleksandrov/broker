@@ -5,7 +5,6 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.28.0",
-    "alex-database",
     "boto3>=1.40.29",
     "langfuse>=3.3.4",
     "openai-agents>=0.3.0",
@@ -18,13 +17,3 @@ dependencies = [
     "python-multipart>=0.0.9",
     "openpyxl>=3.1.3"
 ]
-
-[tool.uv.workspace]
-members = [
-    "database",
-    "api",
-    "scheduler",
-]
-
-[tool.uv.sources]
-alex-database = { workspace = true }
