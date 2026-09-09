@@ -57,6 +57,8 @@ def main():
                 "__pycache__",
                 "*.pyc",
                 ".env*",
+                ".venv",
+                ".git",
                 "*.zip",
                 "package_docker.py",
                 "test_*.py",
@@ -79,26 +81,27 @@ def main():
         else:
             print(f"Warning: Database package not found at {database_src}")
 
-        # Create requirements.txt from pyproject.toml
+        # Create requirements.txt from pyproject.toml using uv pip compile.
+        # This generates a fully-resolved, pinned list (including transitive
+        # dependencies) so that `pip install -r requirements.txt` inside the
+        # Docker image installs exactly the versions declared in pyproject.toml.
         requirements_file = package_dir / "requirements.txt"
+        pyproject_path = api_dir / "pyproject.toml"
+        print(f"Compiling requirements from {pyproject_path} ...")
+        compiled = run_command(
+            [
+                "uv",
+                "pip",
+                "compile",
+                "--no-annotate",
+                "--no-strip-markers",
+                str(pyproject_path),
+            ],
+            cwd=api_dir,
+        )
         with open(requirements_file, "w") as f:
-            for requirement in [
-                "fastapi>=0.116.0",
-                "uvicorn>=0.35.0",
-                "mangum>=0.19.0",
-                "pydantic>=2.0.0",
-                "python-dotenv>=1.0.0",
-                "openai>=1.14.0",
-                "pandas>=2.0.0",
-                "pdf2image>=1.17.0",
-                "pillow>=12.3.0",
-                "pypdf>=6.16.2",
-                "python-multipart>=0.0.9",
-                "openpyxl>=3.1.3",
-                "httpx>=0.28.1",
-                "python-jose>=3.5.0",
-            ]:
-                f.write(f"{requirement}\n")
+            f.write(compiled)
+        print(f"Wrote {len(compiled.splitlines())} lines to {requirements_file}")
 
         # Create Dockerfile
         dockerfile_content = """
@@ -160,6 +163,7 @@ CMD ["api.main.handler"]
         zip_path = api_dir / "api_lambda.zip"
         print(f"Creating zip file: {zip_path}")
 
+        uncompressed_size = 0
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(extract_dir):
                 # Skip __pycache__ directories
@@ -173,10 +177,21 @@ CMD ["api.main.handler"]
                     file_path = Path(root) / file
                     arcname = file_path.relative_to(extract_dir)
                     zipf.write(file_path, arcname)
+                    uncompressed_size += file_path.stat().st_size
 
         # Get file size
         size_mb = zip_path.stat().st_size / (1024 * 1024)
-        print(f"✅ Lambda package created: {zip_path} ({size_mb:.2f} MB)")
+        uncompressed_mb = uncompressed_size / (1024 * 1024)
+        print(
+            f"✅ Lambda package created: {zip_path} "
+            f"({size_mb:.2f} MB compressed, {uncompressed_mb:.2f} MB uncompressed)"
+        )
+        if uncompressed_size >= 220 * 1024 * 1024:
+            print(
+                "Error: uncompressed Lambda package is too large to safely use "
+                "with the configured Lambda layer (220 MiB limit)."
+            )
+            sys.exit(1)
 
         # Verify the package
         print("\nPackage contents (first 20 files):")

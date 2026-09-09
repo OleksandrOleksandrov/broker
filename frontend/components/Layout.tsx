@@ -1,4 +1,3 @@
-import { useUser, UserButton, Protect } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { ReactNode } from "react";
@@ -9,21 +8,13 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { user } = useUser();
   const router = useRouter();
 
   // Helper to determine if a link is active
   const isActive = (path: string) => router.pathname === path;
 
   return (
-    <Protect fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <p className="text-gray-600">Redirecting to sign in...</p>
-        </div>
-      </div>
-    }>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
         {/* Navigation */}
         <nav className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -84,9 +75,8 @@ export default function Layout({ children }: LayoutProps) {
               {/* User Section */}
               <div className="flex items-center gap-4">
                 <span className="hidden sm:inline text-sm text-gray-600">
-                  {user?.firstName || user?.emailAddresses[0]?.emailAddress}
+                  Guest
                 </span>
-                <UserButton afterSignOutUrl="/" />
               </div>
             </div>
 
@@ -162,7 +152,6 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </div>
         </footer>
-      </div>
-    </Protect>
+    </div>
   );
 }

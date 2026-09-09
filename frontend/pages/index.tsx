@@ -19,6 +19,7 @@ interface InvoiceItem {
   price_per_unit: number;
   total_amount: number;
   country_of_origin?: string | null;
+  net_weight_kg?: number | null;
   uktzed_suggestion?: UktZedSuggestion | null;
 }
 
@@ -54,6 +55,75 @@ interface ApplicationData {
   driver_info?: string | null;
   customer_responsible_person?: string | null;
   price_terms?: string | null;
+}
+
+interface CMRParty {
+  name_and_address?: string | null;
+  tax_id?: string | null;
+}
+
+interface CMRCargoItem {
+  marks_and_numbers?: string | null;
+  number_of_packs?: string | null;
+  type_of_packing?: string | null;
+  name_of_goods?: string | null;
+  statistic_number?: string | null;
+  gross_weight_kg?: number | null;
+  volume_m3?: number | null;
+}
+
+interface CMRVehicle {
+  tractor_registration?: string | null;
+  trailer_registration?: string | null;
+  tractor_brand?: string | null;
+  trailer_brand?: string | null;
+}
+
+interface CMRDocument {
+  cmr_number?: string | null;
+  consignor?: CMRParty | null;
+  consignee?: CMRParty | null;
+  delivery_place?: string | null;
+  taking_over_place?: string | null;
+  annexed_documents?: string | null;
+  cargo_items: CMRCargoItem[];
+  senders_instructions?: string | null;
+  carrier?: CMRParty | null;
+  successive_carriers?: CMRParty | null;
+  carriers_reservations?: string | null;
+  freight_payment_instructions?: string | null;
+  special_agreements?: string | null;
+  established_in_place?: string | null;
+  established_in_date?: string | null;
+  arrival_to_loading_time?: string | null;
+  departure_from_loading_time?: string | null;
+  waybill_number?: string | null;
+  drivers_names?: string | null;
+  goods_received_date?: string | null;
+  arrival_to_unloading_time?: string | null;
+  departure_from_unloading_time?: string | null;
+  vehicle_info?: CMRVehicle | null;
+  consignee_signature_and_stamp?: string | null;
+}
+
+interface CombinedSummary {
+  contract?: string | null;
+  net_weight_kg?: number | null;
+  border_crossing_point?: string | null;
+  carrier?: string | null;
+  nomenclature: string[];
+  unloading_city?: string | null;
+  invoice_number?: string | null;
+  vn_number_pd?: string | null;
+  vehicle_number?: string | null;
+  tax_document_number?: string | null;
+}
+
+interface CombinedDocumentData {
+  summary: CombinedSummary;
+  invoice: InvoiceData;
+  application: ApplicationData;
+  cmr: CMRDocument;
 }
 
 interface CMRParty {
@@ -185,6 +255,66 @@ export default function InvoiceParserApp(): React.JSX.Element {
   const [cmrData, setCmrData] = useState<CMRDocument | null>(null);
   const [cmrLoading, setCmrLoading] = useState<boolean>(false);
   const [cmrError, setCmrError] = useState<string | null>(null);
+  const [combinedLoading, setCombinedLoading] = useState<boolean>(false);
+  const [combinedError, setCombinedError] = useState<string | null>(null);
+  const [combinedSummary, setCombinedSummary] = useState<CombinedSummary | null>(null);
+  const [combinedInvoiceFile, setCombinedInvoiceFile] = useState<File | null>(null);
+  const [combinedApplicationFile, setCombinedApplicationFile] = useState<File | null>(null);
+  const [combinedCmrFile, setCombinedCmrFile] = useState<File | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [maxSizeKb, setMaxSizeKb] = useState<number>(500);
+  const [removeColor, setRemoveColor] = useState<boolean>(true);
+  const [pdfLoading, setPdfLoading] = useState<boolean>(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfSuccess, setPdfSuccess] = useState<string | null>(null);
+
+  const handlePdfUpload = async () => {
+    if (!pdfFile) {
+      setPdfError('Будь ласка, оберіть PDF-файл');
+      return;
+    }
+
+    setPdfLoading(true);
+    setPdfError(null);
+    setPdfSuccess(null);
+
+    const formData = new FormData();
+    formData.append('file', pdfFile);
+    formData.append('max_size_kb', String(maxSizeKb));
+    formData.append('remove_color', String(removeColor));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/compress-pdf`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Помилка при стисненні PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compressed_${pdfFile.name}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setPdfSuccess('PDF успішно стиснуто та завантажено');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setPdfError(err.message);
+      } else {
+        setPdfError('Невідома помилка при стисненні PDF');
+      }
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -221,7 +351,11 @@ export default function InvoiceParserApp(): React.JSX.Element {
       setData(result);
     } catch (err: unknown) {
       if (err instanceof Error) {
-        setError(err.message);
+        setError(
+          err.message === 'Failed to fetch'
+            ? `Не вдалося підключитися до API (${API_BASE_URL}). Перевірте API Gateway і CloudWatch.`
+            : err.message
+        );
       } else {
         setError('Невідома помилка');
       }
@@ -307,6 +441,44 @@ export default function InvoiceParserApp(): React.JSX.Element {
     }
   };
 
+  const handleCombinedUpload = async () => {
+    if (!combinedInvoiceFile || !combinedApplicationFile || !combinedCmrFile) {
+      setCombinedError('Будь ласка, оберіть усі три PDF-файли');
+      return;
+    }
+
+    setCombinedLoading(true);
+    setCombinedError(null);
+    const formData = new FormData();
+    formData.append('invoice_file', combinedInvoiceFile);
+    formData.append('application_file', combinedApplicationFile);
+    formData.append('cmr_file', combinedCmrFile);
+    formData.append('parse_uktzed', String(parseUktzed));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/parse-transport-documents`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Помилка при обробці документів');
+      }
+      const result: CombinedDocumentData = await response.json();
+      setCombinedSummary(result.summary);
+      setData(result.invoice);
+      setApplicationData(result.application);
+      setCmrData(result.cmr);
+      setError(null);
+      setApplicationError(null);
+      setCmrError(null);
+    } catch (err: unknown) {
+      setCombinedError(err instanceof Error ? err.message : 'Невідома помилка');
+    } finally {
+      setCombinedLoading(false);
+    }
+  };
+
   const downloadExcel = async () => {
     if (!data) return;
 
@@ -340,12 +512,176 @@ export default function InvoiceParserApp(): React.JSX.Element {
     }
   };
 
+  const copyCombinedToClipboard = async () => {
+    if (!combinedSummary) return;
+
+    const val = (v: unknown): string =>
+      v === null || v === undefined || v === '' ? '-' : String(v);
+
+    const row = [
+      val(combinedSummary.contract),
+      val(""),
+      val(combinedSummary.net_weight_kg),
+      val(combinedSummary.border_crossing_point),
+      val(combinedSummary.carrier),
+      val(combinedSummary.nomenclature.join(', ')),
+      val(combinedSummary.unloading_city),
+      val(""),
+      val(combinedSummary.vehicle_number),
+    ].join('\t');
+
+    try {
+      await navigator.clipboard.writeText(row);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      setError('Не вдалося скопіювати в буфер обміну');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-gray-800">
           Завантажте PDF файли для обробки.
         </h1>
+
+        <div className="flex flex-col lg:flex-row gap-6 mb-8">
+          <div className="bg-white p-6 rounded-lg shadow-md flex-1">
+            <label className="block text-gray-700 font-semibold mb-2">
+              Завантажте PDF-файл для стиснення:
+            </label>
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4 items-center">
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setPdfFile}
+                  selectedFile={pdfFile}
+                  disabled={pdfLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 font-semibold mb-2">
+                  Макс. розмір (KB):
+                </label>
+                <input
+                  type="number"
+                  value={maxSizeKb}
+                  onChange={(e) => setMaxSizeKb(Number(e.target.value))}
+                  min="1"
+                  className="border p-2 rounded w-32"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-gray-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={removeColor}
+                  onChange={(e) => setRemoveColor(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-semibold">Remove color</span>
+              </label>
+              <button
+                onClick={handlePdfUpload}
+                disabled={pdfLoading}
+                className="mt-4 w-48 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
+              >
+                {pdfLoading ? 'Стиснення...' : 'Стиснути'}
+              </button>
+            </div>
+            {pdfLoading && (
+              <div className="mt-4 text-blue-600 font-semibold">
+                Стиснення PDF...
+              </div>
+            )}
+            {pdfError && (
+              <div className="mt-4 text-red-600 font-semibold">
+                {pdfError}
+              </div>
+            )}
+            {pdfSuccess && (
+              <div className="mt-4 text-green-600 font-semibold">
+                {pdfSuccess}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-6 rounded-lg shadow-md flex-1">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">
+              Обробити комплект документів
+            </h2>
+            <p className="mb-4 text-gray-600">
+              Завантажте інвойс, транспортну заявку та CMR одним запитом.
+            </p>
+            <div className="flex flex-col gap-4">
+              <label className="font-semibold text-gray-700">
+                Інвойс
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setCombinedInvoiceFile}
+                  selectedFile={combinedInvoiceFile}
+                  disabled={combinedLoading}
+                />
+              </label>
+              <label className="font-semibold text-gray-700">
+                Транспортна заявка
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setCombinedApplicationFile}
+                  selectedFile={combinedApplicationFile}
+                  disabled={combinedLoading}
+                />
+              </label>
+              <label className="font-semibold text-gray-700">
+                CMR
+                <FilePicker
+                  label="Обрати PDF"
+                  accept="application/pdf"
+                  onChange={setCombinedCmrFile}
+                  selectedFile={combinedCmrFile}
+                  disabled={combinedLoading}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={handleCombinedUpload}
+              disabled={combinedLoading}
+              className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold px-6 py-2 rounded transition-colors"
+            >
+              {combinedLoading ? 'Обробка трьох документів...' : 'Обробити комплект'}
+            </button>
+            {combinedLoading && <div className="mt-4 text-blue-600 font-semibold">Розпізнавання документів...</div>}
+            {combinedError && <div className="mt-4 text-red-600 font-semibold">{combinedError}</div>}
+          </div>
+        </div>
+
+        {combinedSummary && (
+          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">Зведені дані документів</h2>
+            <button
+              onClick={copyCombinedToClipboard}
+              className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded transition-colors text-sm"
+            >
+              {copied ? '✅ Скопійовано!' : '📋 Копіювати в Google Sheets'}
+            </button>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div><span className="font-bold">Контракт:</span> {combinedSummary.contract || '-'}</div>
+              <div><span className="font-bold">Маса нетто, кг:</span> {combinedSummary.net_weight_kg ?? '-'}</div>
+              <div><span className="font-bold">ПП:</span> {combinedSummary.border_crossing_point || '-'}</div>
+              <div><span className="font-bold">Перевізник:</span> {combinedSummary.carrier || '-'}</div>
+              <div className="md:col-span-2"><span className="font-bold">Номенклатура:</span> {combinedSummary.nomenclature.join(', ') || '-'}</div>
+              <div><span className="font-bold">Місто розвантаження:</span> {combinedSummary.unloading_city || '-'}</div>
+              <div><span className="font-bold">ВН номер (ПД):</span> {combinedSummary.vn_number_pd || '-'}</div>
+              <div><span className="font-bold">Номер машини:</span> {combinedSummary.vehicle_number || '-'}</div>
+              <div><span className="font-bold">ПД:</span> {combinedSummary.tax_document_number || '-'}</div>
+            </div>
+          </div>
+        )}
 
         {/* Форма завантаження інвойсу */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
@@ -485,96 +821,6 @@ export default function InvoiceParserApp(): React.JSX.Element {
                   })}
                 </tbody>
               </table>
-            </div>
-          </div>
-        )}
-
-        {/* Результати заявки */}
-        {applicationData && (
-          <div className="bg-white p-6 rounded-lg shadow-md mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <span className="font-bold">№ Заявки:</span>{' '}
-              {applicationData.application_number || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Дата заявки:</span>{' '}
-              {applicationData.application_date || '-'}
-            </div>
-            <div>
-              <span className="font-bold">№ Договору:</span>{' '}
-              {applicationData.contract_number || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Дата договору:</span>{' '}
-              {applicationData.contract_date || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Вид перевезення:</span>{' '}
-              {applicationData.transport_type || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Маршрут:</span>{' '}
-              {applicationData.route || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Вантажовідправник:</span>{' '}
-              {applicationData.shipper || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Адреса завантаження:</span>{' '}
-              {applicationData.loading_address || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Дата/час завантаження:</span>{' '}
-              {applicationData.loading_datetime || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Вантаж (найменування, пакування):</span>{' '}
-              {applicationData.cargo_name_and_packaging || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Кількість/габарити/вага:</span>{' '}
-              {applicationData.cargo_quantity_and_dimensions || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Адреса замитнення:</span>{' '}
-              {applicationData.customs_outbound_address || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Пункт перетину кордону:</span>{' '}
-              {applicationData.border_crossing_point || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Адреса розмитнення:</span>{' '}
-              {applicationData.customs_inbound_address || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Адреса розвантаження:</span>{' '}
-              {applicationData.unloading_address || '-'}
-            </div>
-            <div>
-              <span className="font-bold">Дата/час розвантаження:</span>{' '}
-              {applicationData.unloading_datetime || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Вимоги до ТЗ:</span>{' '}
-              {applicationData.vehicle_requirements || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Транспортний засіб:</span>{' '}
-              {applicationData.vehicle_info || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Водій:</span>{' '}
-              {applicationData.driver_info || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Відповідальна особа Замовника:</span>{' '}
-              {applicationData.customer_responsible_person || '-'}
-            </div>
-            <div className="md:col-span-3">
-              <span className="font-bold">Ціна та умови:</span>{' '}
-              {applicationData.price_terms || '-'}
             </div>
           </div>
         )}

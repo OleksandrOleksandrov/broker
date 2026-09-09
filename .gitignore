@@ -215,10 +215,15 @@ __marimo__/
 
 .DS_Store
 
-.terraform/
-terraform.tfstate.d/
+# Terraform
 *.tfstate
-*.tfstate.backup
+.tfstate.
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate.d/
+*.tfvars
+!terraform.tfvars
+!prod.tfvars
 
 # Lambda deployment packages
 lambda_function.zip
@@ -231,5 +236,3 @@ backend/**/*_lambda.zip
 !backend/scheduler/lambda_function.zip
 !frontend/lib
 .idea
-.terraform.lock.hcl
-/terraform/4_researcher/researcher.auto.tfvars.json

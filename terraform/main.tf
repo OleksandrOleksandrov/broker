@@ -124,13 +124,23 @@ resource "aws_iam_role_policy_attachment" "lambda_s3" {
   role       = aws_iam_role.lambda_role.name
 }
 
+# Store the deployment package in S3 so Lambda does not receive a large
+# direct-upload request during CreateFunction or UpdateFunctionCode.
+resource "aws_s3_object" "lambda_package" {
+  bucket = aws_s3_bucket.memory.id
+  key    = "lambda/${local.name_prefix}/lambda-deployment.zip"
+  source = "${path.module}/../backend/lambda-deployment.zip"
+  source_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
+}
+
 # Lambda function
 resource "aws_lambda_function" "api" {
-  filename         = "${path.module}/../backend/lambda-deployment.zip"
+  s3_bucket        = aws_s3_object.lambda_package.bucket
+  s3_key           = aws_s3_object.lambda_package.key
+  source_code_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda_role.arn
   handler          = "lambda_handler.handler"
-  source_code_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
   runtime          = "python3.12"
   architectures    = ["x86_64"]
   memory_size      = 1024
@@ -143,9 +153,9 @@ resource "aws_lambda_function" "api" {
       S3_BUCKET        = aws_s3_bucket.memory.id
       USE_S3           = "true"
       BEDROCK_MODEL_ID = var.bedrock_model_id
-      OPENAI_API_KEY   = var.openai_api_key
       LD_LIBRARY_PATH  = var.ld_library_path
       POPPLER_PATH     = var.poppler_path
+      OPENAI_API_KEY   = var.openai_api_key
     }
   }
 
@@ -209,7 +219,8 @@ resource "aws_apigatewayv2_route" "get_health" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
-resource "aws_apigatewayv2_route" "default_route" {
+# Forward all FastAPI paths (including the /api/* document endpoints) to Lambda.
+resource "aws_apigatewayv2_route" "default" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "$default"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
@@ -227,7 +238,7 @@ resource "aws_lambda_permission" "api_gw" {
 # CloudFront distribution
 resource "aws_cloudfront_distribution" "main" {
   aliases = local.aliases
-  
+
   viewer_certificate {
     acm_certificate_arn            = var.use_custom_domain ? aws_acm_certificate.site[0].arn : null
     cloudfront_default_certificate = var.use_custom_domain ? false : true
