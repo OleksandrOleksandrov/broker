@@ -132,7 +132,7 @@ resource "aws_lambda_function" "api" {
   handler          = "lambda_handler.handler"
   source_code_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
   runtime          = "python3.12"
-  architectures    = ["x86_64"]
+  architectures    = ["arm64"]
   memory_size      = 1024
   timeout          = var.lambda_timeout
   tags             = local.common_tags
