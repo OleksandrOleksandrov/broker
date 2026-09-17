@@ -1,0 +1,23 @@
+export interface ApplicationData {
+  application_number?: string | null;
+  application_date?: string | null;
+  contract_number?: string | null;
+  contract_date?: string | null;
+  transport_type?: string | null;
+  route?: string | null;
+  shipper?: string | null;
+  loading_address?: string | null;
+  loading_datetime?: string | null;
+  cargo_name_and_packaging?: string | null;
+  cargo_quantity_and_dimensions?: string | null;
+  customs_outbound_address?: string | null;
+  border_crossing_point?: string | null;
+  customs_inbound_address?: string | null;
+  unloading_address?: string | null;
+  unloading_datetime?: string | null;
+  vehicle_requirements?: string | null;
+  vehicle_info?: string | null;
+  driver_info?: string | null;
+  customer_responsible_person?: string | null;
+  price_terms?: string | null;
+}

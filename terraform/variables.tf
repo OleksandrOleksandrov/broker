@@ -8,11 +8,11 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, test, prod)"
+  description = "Environment name (dev, staging, prod)"
   type        = string
   validation {
-    condition     = contains(["dev", "test", "prod"], var.environment)
-    error_message = "Environment must be one of: dev, test, prod."
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be one of: dev, staging, prod."
   }
 }
 
@@ -52,12 +52,6 @@ variable "root_domain" {
   default     = ""
 }
 
-variable "openai_api_key" {
-  description = "OpenAI API key for the researcher agent"
-  type        = string
-  sensitive   = true
-}
-
 variable "ld_library_path" {
   description = "For using poppler custom layer"
   type        = string
@@ -68,4 +62,10 @@ variable "poppler_path" {
   description = "Path for popper"
   type        = string
   sensitive   = false
+}
+
+variable "openai_api_key" {
+  description = "OpenAI API key used by the backend for observability and OpenAI API calls"
+  type        = string
+  sensitive   = true
 }

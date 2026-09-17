@@ -74,6 +74,48 @@ app.post('/upload-cmr', upload.single('file'), async (req, res) => {
   }
 });
 
+app.post('/upload-transport-documents', upload.fields([
+  { name: 'invoice_file', maxCount: 1 },
+  { name: 'application_file', maxCount: 1 },
+  { name: 'cmr_file', maxCount: 1 },
+]), async (req, res) => {
+  try {
+    const files = req.files;
+    const invoiceFile = files?.invoice_file?.[0];
+    const applicationFile = files?.application_file?.[0];
+    const cmrFile = files?.cmr_file?.[0];
+    if (!invoiceFile || !applicationFile || !cmrFile) {
+      return res.status(400).json({ error: 'Потрібні всі три файли' });
+    }
+
+    const formData = new FormData();
+    for (const [field, file] of [
+      ['invoice_file', invoiceFile],
+      ['application_file', applicationFile],
+      ['cmr_file', cmrFile],
+    ]) {
+      formData.append(field, file.buffer, {
+        filename: file.originalname,
+        contentType: file.mimetype,
+      });
+    }
+    if (req.body.parse_uktzed) {
+      formData.append('parse_uktzed', req.body.parse_uktzed);
+    }
+
+    const response = await fetch(`${FASTAPI_URL}/api/parse-transport-documents`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(`Помилка FastAPI: ${await response.text()}`);
+    }
+    res.json(await response.json());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Node.js Frontend запущено на http://localhost:${PORT}`);
