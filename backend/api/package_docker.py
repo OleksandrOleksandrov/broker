@@ -23,6 +23,56 @@ def run_command(cmd, cwd=None):
     return result.stdout
 
 
+def build_poppler_layer(temp_path, output_path):
+    """Build an ARM64 Poppler layer from Amazon Linux Lambda-compatible packages."""
+    layer_dir = temp_path / "poppler-layer"
+    layer_dir.mkdir()
+    dockerfile = layer_dir / "Dockerfile"
+    dockerfile.write_text(
+        """FROM public.ecr.aws/lambda/python:3.12
+RUN dnf install -y poppler-utils findutils && \\
+    mkdir -p /opt/poppler/bin /opt/poppler/lib && \\
+    cp /usr/bin/pdfinfo /usr/bin/pdftoppm /opt/poppler/bin/ && \\
+    for lib in $(ldd /usr/bin/pdfinfo /usr/bin/pdftoppm | \\
+        awk '/=> \\/|^\\// {print $3 ? $3 : $1}' | sort -u); do \\
+        [ -f "$lib" ] && cp "$lib" /opt/poppler/lib/; \\
+    done
+"""
+    )
+    print("Building ARM64 Poppler Lambda layer...")
+    run_command(
+        [
+            "docker",
+            "build",
+            "--platform",
+            "linux/arm64",
+            "-t",
+            "broker-poppler-layer",
+            ".",
+        ],
+        cwd=layer_dir,
+    )
+    container_name = "broker-poppler-extract"
+    run_command(["docker", "rm", "-f", container_name], cwd=layer_dir)
+    run_command(
+        ["docker", "create", "--name", container_name, "broker-poppler-layer"],
+        cwd=layer_dir,
+    )
+    extract_dir = temp_path / "poppler-extract"
+    extract_dir.mkdir()
+    run_command(
+        ["docker", "cp", f"{container_name}:/opt/poppler/.", str(extract_dir)]
+    )
+    run_command(["docker", "rm", "-f", container_name])
+
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for root, _, files in os.walk(extract_dir):
+            for file in files:
+                file_path = Path(root) / file
+                zipf.write(file_path, file_path.relative_to(extract_dir))
+    print(f"Created Poppler layer package: {output_path}")
+
+
 def main():
     # Get the API directory
     api_dir = Path(__file__).parent.absolute()
@@ -122,15 +172,15 @@ CMD ["api.main.handler"]
         with open(dockerfile, "w") as f:
             f.write(dockerfile_content)
 
-        # Build Docker image for x86_64 to match the Lambda runtime and the
-        # x86_64 Poppler layer used by Terraform.
-        print("Building Docker image for x86_64 architecture...")
+        # Build the package for the same architecture as the Lambda function
+        # and the Poppler layer used by Terraform.
+        print("Building Docker image for arm64 architecture...")
         run_command(
             [
                 "docker",
                 "build",
                 "--platform",
-                "linux/amd64",
+                "linux/arm64",
                 "-t",
                 "broker-api-packager",
                 ".",
@@ -179,6 +229,8 @@ CMD ["api.main.handler"]
                     arcname = file_path.relative_to(extract_dir)
                     zipf.write(file_path, arcname)
                     uncompressed_size += file_path.stat().st_size
+
+        build_poppler_layer(temp_path, api_dir / "poppler_layer.zip")
 
         # Get file size
         size_mb = zip_path.stat().st_size / (1024 * 1024)

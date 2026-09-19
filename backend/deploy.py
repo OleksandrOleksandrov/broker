@@ -114,6 +114,14 @@ def package_lambda():
     shutil.copy2(lambda_zip, terraform_zip)
     print(f"  ✅ Copied to: {terraform_zip} ({size_mb:.2f} MB)")
 
+    poppler_zip = api_dir / "poppler_layer.zip"
+    if not poppler_zip.exists():
+        print(f"  ❌ Poppler layer package not created: {poppler_zip}")
+        sys.exit(1)
+    terraform_poppler_zip = backend_dir / "poppler_layer.zip"
+    shutil.copy2(poppler_zip, terraform_poppler_zip)
+    print(f"  ✅ Copied to: {terraform_poppler_zip}")
+
 
 def build_frontend(api_url=None):
     """Build the NextJS frontend."""
