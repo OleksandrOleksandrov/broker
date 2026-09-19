@@ -17,9 +17,10 @@
 | **Frontend** | Next.js 15 (Pages Router), React 19, TypeScript, Tailwind CSS v4 |
 | **Backend API** | FastAPI, Python 3.12+, uv |
 | **AI/ML** | OpenAI API (GPT-4o), SageMaker embeddings, Bedrock Nova Pro |
-| **Infrastructure** | AWS (Lambda, App Runner, CloudFront, S3, API Gateway, SQS, Aurora Serverless v2) |
+| **Infrastructure** | AWS (Lambda [arm64], App Runner, CloudFront, S3, API Gateway, SQS, Aurora Serverless v2) |
 | **Auth** | Clerk |
 | **Deployment** | Terraform, Docker |
+| **PDF Processing** | Poppler (`pdfinfo`, `pdftoppm`) packaged as a Lambda Layer |
 
 ---
 
@@ -74,6 +75,8 @@ cp .env.example .env
 cd scripts
 uv run run_local.py
 ```
+
+> **Note:** The Lambda function and Poppler layer are built for **arm64** architecture. Docker must be running with `linux/arm64` platform support to package the Lambda deployment artifacts.
 
 The script will:
 - Check all prerequisites (Node.js, npm, uv)
@@ -165,9 +168,20 @@ API documentation is available at `http://localhost:8000/docs` (Swagger UI) and 
 # Run local development (both services)
 cd scripts && uv run run_local.py
 
+# Package Lambda + Poppler layer for deployment (requires Docker with arm64 support)
+cd backend/api && python package_docker.py
+
 # Destroy all infrastructure (cleanup)
 uv run destroy.py
 ```
+
+### Poppler Layer
+
+PDF processing (`pdfinfo`, `pdftoppm`) is provided by Poppler, packaged as a **Lambda Layer** built for **arm64** architecture. The layer is created by `backend/api/package_docker.py` using an Amazon Linux base image and is referenced in Terraform. It must be rebuilt whenever the Poppler tooling or layer configuration changes.
+
+**Why Poppler?** The FastAPI backend uses `pdfinfo` and `pdftoppm` (from Poppler) to extract text, metadata, and page images from transport documents (invoices, CMRs, applications) before passing them to GPT-4o Vision for parsing. These binaries are not part of the Python runtime, so they must be bundled as a Lambda Layer. Building the layer with Docker ensures binary compatibility with the Lambda runtime environment.
+
+**Why arm64?** AWS Lambda functions on **arm64** (Graviton2/Graviton3) offer up to **~34% better price-performance** compared to x86_64 for compute-heavy workloads. Since this application performs CPU-intensive PDF parsing and AI inference, running on arm64 significantly reduces per-request cost. The Lambda function, its dependencies, and the Poppler layer are all built for `linux/arm64` to match.
 
 ---
 

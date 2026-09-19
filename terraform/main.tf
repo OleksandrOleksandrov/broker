@@ -65,11 +65,6 @@ output "dynamodb_table_name" {
   value = aws_dynamodb_table.terraform_locks.name
 }
 
-data "aws_lambda_layer_version" "poppler" {
-  layer_name = "poppler"
-  version    = 1
-}
-
 locals {
   aliases = var.use_custom_domain && var.root_domain != "" ? [
     var.root_domain,
@@ -197,6 +192,14 @@ resource "aws_s3_object" "lambda_package" {
   source_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
 }
 
+resource "aws_lambda_layer_version" "poppler" {
+  filename                 = "${path.module}/../backend/poppler_layer.zip"
+  layer_name               = "${local.name_prefix}-poppler"
+  compatible_architectures = ["arm64"]
+  compatible_runtimes      = ["python3.12"]
+  source_code_hash         = filebase64sha256("${path.module}/../backend/poppler_layer.zip")
+}
+
 # Lambda function
 resource "aws_lambda_function" "api" {
   s3_bucket        = aws_s3_object.lambda_package.bucket
@@ -206,9 +209,7 @@ resource "aws_lambda_function" "api" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "lambda_handler.handler"
   runtime          = "python3.12"
-  # The Poppler layer currently contains x86_64 binaries. Keep the Lambda
-  # architecture aligned with the layer so pdf2image can execute pdfinfo.
-  architectures    = ["x86_64"]
+  architectures    = ["arm64"]
   memory_size      = 1024
   timeout          = var.lambda_timeout
   tags             = local.common_tags
@@ -229,7 +230,7 @@ resource "aws_lambda_function" "api" {
   depends_on = [aws_cloudfront_distribution.main]
 
   layers = [
-    data.aws_lambda_layer_version.poppler.arn
+    aws_lambda_layer_version.poppler.arn
   ]
 }
 
