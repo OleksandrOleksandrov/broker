@@ -432,7 +432,7 @@ The most common issues relate to AWS region choices! Check environment variables
 1. Check CloudWatch logs: `aws logs tail /aws/lambda/alex-{agent-name} --follow`
 2. Check Lambda environment variables in AWS Console
 3. Check IAM role has required permissions
-4. Was the Lambda package built with Docker for linux/amd64?
+4. Was the Lambda package built with Docker for linux/arm64?
 
 **Solution**:
 1. For packaging: Re-run `package_docker.py` with Docker running

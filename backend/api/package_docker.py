@@ -122,15 +122,15 @@ CMD ["api.main.handler"]
         with open(dockerfile, "w") as f:
             f.write(dockerfile_content)
 
-        # Build Docker image for x86_64 to match the Lambda runtime and the
-        # x86_64 Poppler layer used by Terraform.
-        print("Building Docker image for x86_64 architecture...")
+        # Build the package for the same architecture as the Lambda function
+        # and the Poppler layer used by Terraform.
+        print("Building Docker image for arm64 architecture...")
         run_command(
             [
                 "docker",
                 "build",
                 "--platform",
-                "linux/amd64",
+                "linux/arm64",
                 "-t",
                 "broker-api-packager",
                 ".",

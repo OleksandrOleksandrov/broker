@@ -66,8 +66,8 @@ output "dynamodb_table_name" {
 }
 
 data "aws_lambda_layer_version" "poppler" {
-  layer_name = "poppler"
-  version    = 1
+  layer_name              = "poppler"
+  compatible_architecture = "arm64"
 }
 
 locals {
@@ -206,9 +206,7 @@ resource "aws_lambda_function" "api" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "lambda_handler.handler"
   runtime          = "python3.12"
-  # The Poppler layer currently contains x86_64 binaries. Keep the Lambda
-  # architecture aligned with the layer so pdf2image can execute pdfinfo.
-  architectures    = ["x86_64"]
+  architectures    = ["arm64"]
   memory_size      = 1024
   timeout          = var.lambda_timeout
   tags             = local.common_tags
