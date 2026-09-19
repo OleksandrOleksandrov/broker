@@ -281,6 +281,12 @@ def deploy_terraform(environment: str = "dev"):
     else:
         print("  ✅ S3 backend initialized successfully")
 
+    # Ensure the DynamoDB lock table exists. This handles the case where the
+    # S3 bucket exists (init succeeded) but the lock table was deleted or was
+    # never created — without it, terraform plan/apply/import fails with a
+    # "Error acquiring the state lock" error.
+    ensure_lock_table(terraform_dir, account_id, region)
+
     # Adopt resources that may have been created by an earlier deployment.
     # This keeps redeployments from failing when the remote state was replaced
     # or is being initialized for the first time.
@@ -316,6 +322,13 @@ def import_existing_resources(terraform_dir: Path, environment: str):
     project_name = os.environ.get("PROJECT_NAME", "broker")
     name_prefix = f"{project_name}-{environment}"
     resources = {
+        # State backend bootstrap resources (may exist in AWS but not in state)
+        "aws_dynamodb_table.terraform_locks": "broker-terraform-locks",
+        "aws_s3_bucket.terraform_state": f"broker-terraform-state-{get_aws_account_id()}",
+        "aws_s3_bucket_public_access_block.terraform_state": f"broker-terraform-state-{get_aws_account_id()}",
+        "aws_s3_bucket_server_side_encryption_configuration.terraform_state": f"broker-terraform-state-{get_aws_account_id()}",
+        "aws_s3_bucket_versioning.terraform_state": f"broker-terraform-state-{get_aws_account_id()}",
+        # Application resources
         "aws_s3_bucket.memory": f"{name_prefix}-memory-{get_aws_account_id()}",
         "aws_s3_bucket.frontend": f"{name_prefix}-frontend-{get_aws_account_id()}",
         "aws_iam_role.lambda_role": f"{name_prefix}-lambda-role",
@@ -357,6 +370,45 @@ def import_existing_resources(terraform_dir: Path, environment: str):
 
         print(f"  ❌ Failed to import {address}:\n{import_result.stderr}")
         sys.exit(1)
+
+
+def ensure_lock_table(terraform_dir: Path, account_id: str, region: str):
+    """Ensure the DynamoDB state lock table exists, creating it if necessary.
+
+    Handles the case where the S3 backend bucket exists (so terraform init
+    succeeds) but the DynamoDB lock table was deleted, never created, or is
+    missing from the remote state. Without this, terraform plan/apply/import
+    would fail with a "Error acquiring the state lock" error.
+    """
+    table_name = "broker-terraform-locks"
+    describe_result = subprocess.run(
+        ["aws", "dynamodb", "describe-table",
+         "--table-name", table_name,
+         "--region", region],
+        capture_output=True,
+        text=True,
+    )
+    if describe_result.returncode == 0:
+        print(f"  ✅ State lock table '{table_name}' exists")
+        return
+
+    print(f"  ⚠️  State lock table '{table_name}' not found. Creating it...")
+    run_command(
+        ["aws", "dynamodb", "create-table",
+         "--table-name", table_name,
+         "--attribute-definitions", "AttributeName=LockID,AttributeType=S",
+         "--key-schema", "AttributeName=LockID,KeyType=HASH",
+         "--billing-mode", "PAY_PER_REQUEST",
+         "--region", region],
+        capture_output=True,
+    )
+    run_command(
+        ["aws", "dynamodb", "wait", "table-exists",
+         "--table-name", table_name,
+         "--region", region],
+        capture_output=True,
+    )
+    print(f"  ✅ Created state lock table '{table_name}'")
 
 
 def get_aws_account_id() -> str:
