@@ -6,5 +6,5 @@ api_throttle_burst_limit = 10
 api_throttle_rate_limit  = 5
 use_custom_domain        = false
 root_domain              = ""
-ld_library_path          = "/opt/poppler/lib:/var/lang/lib:/lib64:/usr/lib64"
-poppler_path             = "/opt/poppler/bin"
+ld_library_path          = "/opt/lib:/var/lang/lib:/lib64:/usr/lib64"
+poppler_path             = "/opt/bin"
