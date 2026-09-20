@@ -144,12 +144,6 @@ def encode_lossless_image_to_base64(image: Image.Image) -> str:
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 
-def encode_lossless_image_to_base64(image: Image.Image) -> str:
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG", optimize=True)
-    return base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-
 # 2. Функція підбору коду УКТ ЗЕД для конкретної позиції
 def get_uktzed_code(
     client: OpenAI, item_description: str, article: Optional[str]

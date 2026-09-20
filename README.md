@@ -1,7 +1,5 @@
 # Broker - Multi-agent SaaS Broker Helper
 
-**Alex** (Agentic Learning Equities eXplainer) is a multi-agent enterprise-grade SaaS financial planning platform. It processes transport documents (invoices, CMRs, transport applications) using AI-powered parsing, and provides portfolio management and financial analysis.
-
 ## 🚀 Deployment Environments
 
 - **🌟 Production**: [https://d3k4ryo482qtfz.cloudfront.net](https://d3k4ryo482qtfz.cloudfront.net)
