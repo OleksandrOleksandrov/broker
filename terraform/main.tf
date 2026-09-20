@@ -210,7 +210,7 @@ resource "aws_lambda_function" "api" {
   handler          = "lambda_handler.handler"
   runtime          = "python3.12"
   architectures    = ["arm64"]
-  memory_size      = 1024
+  memory_size      = 512
   timeout          = var.lambda_timeout
   tags             = local.common_tags
 
