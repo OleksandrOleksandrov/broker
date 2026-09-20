@@ -69,3 +69,13 @@ variable "openai_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "lambda_snap_start" {
+  description = "SnapStart configuration for Lambda function (PublishedVersions or None)"
+  type        = string
+  default     = "PublishedVersions"
+  validation {
+    condition     = contains(["PublishedVersions", "None"], var.lambda_snap_start)
+    error_message = "lambda_snap_start must be either 'PublishedVersions' or 'None'."
+  }
+}

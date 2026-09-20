@@ -214,6 +214,10 @@ resource "aws_lambda_function" "api" {
   timeout          = var.lambda_timeout
   tags             = local.common_tags
 
+  snap_start {
+    apply_on = var.lambda_snap_start
+  }
+
   environment {
     variables = {
       CORS_ORIGINS     = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
