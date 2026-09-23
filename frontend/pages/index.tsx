@@ -12,25 +12,37 @@ const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 ).replace(/\/$/, '');
 
-function FilePicker({
+function FilePicker<T extends File | File[] | null>({
   label,
   accept,
   onChange,
   selectedFile,
+  multiple = false,
   disabled,
-}: FilePickerProps): React.JSX.Element {
+}: FilePickerProps<T>): React.JSX.Element {
+  const selectedFiles = Array.isArray(selectedFile)
+    ? selectedFile
+    : selectedFile
+      ? [selectedFile]
+      : [];
+
   return (
     <div className="flex items-center gap-2">
       <label className="relative inline-flex items-center">
         <input
           type="file"
           accept={accept}
+          multiple={multiple}
           onChange={(e) => {
-            if (e.target.files && e.target.files[0]) {
-              onChange(e.target.files[0]);
+            if (multiple) {
+              const files = e.target.files ? Array.from(e.target.files) : [];
+              onChange((files.length > 0 ? files : null) as T);
+            } else if (e.target.files && e.target.files[0]) {
+              onChange(e.target.files[0] as T);
             } else {
-              onChange(null);
+              onChange(null as T);
             }
+            e.target.value = '';
           }}
           disabled={disabled}
           className="hidden"
@@ -40,7 +52,11 @@ function FilePicker({
         </span>
       </label>
       <span className="text-sm text-gray-600 truncate">
-        {selectedFile ? selectedFile.name : 'Файл не обрано'}
+        {selectedFiles.length > 0
+          ? selectedFiles.length === 1
+            ? selectedFiles[0].name
+            : `${selectedFiles.length} файлів обрано`
+          : 'Файл не обрано'}
       </span>
     </div>
   );
@@ -91,15 +107,15 @@ export default function InvoiceParserApp(): React.JSX.Element {
   const [combinedSummary, setCombinedSummary] = useState<CombinedSummary | null>(null);
   const [combinedFiles, setCombinedFiles] = useState<File[]>([]);
   const [copied, setCopied] = useState<boolean>(false);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [maxSizeKb, setMaxSizeKb] = useState<number>(500);
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
+  const [maxSizeKb, setMaxSizeKb] = useState<number>(495);
   const [removeColor, setRemoveColor] = useState<boolean>(true);
   const [pdfLoading, setPdfLoading] = useState<boolean>(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfSuccess, setPdfSuccess] = useState<string | null>(null);
 
   const handlePdfUpload = async () => {
-    if (!pdfFile) {
+    if (pdfFiles.length === 0) {
       setPdfError('Будь ласка, оберіть PDF-файл');
       return;
     }
@@ -109,7 +125,9 @@ export default function InvoiceParserApp(): React.JSX.Element {
     setPdfSuccess(null);
 
     const formData = new FormData();
-    formData.append('file', pdfFile);
+    for (const pdfFile of pdfFiles) {
+      formData.append('files', pdfFile);
+    }
     formData.append('max_size_kb', String(maxSizeKb));
     formData.append('remove_color', String(removeColor));
 
@@ -128,12 +146,19 @@ export default function InvoiceParserApp(): React.JSX.Element {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `compressed_${pdfFile.name}`;
+      a.download =
+        pdfFiles.length === 1
+          ? `compressed_${pdfFiles[0].name}`
+          : 'compressed_pdfs.zip';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      setPdfSuccess('PDF успішно стиснуто та завантажено');
+      setPdfSuccess(
+        pdfFiles.length === 1
+          ? 'PDF успішно стиснуто та завантажено'
+          : 'PDF-файли успішно стиснуто та завантажено',
+      );
     } catch (err: unknown) {
       if (err instanceof Error) {
         setPdfError(err.message);
@@ -408,10 +433,15 @@ export default function InvoiceParserApp(): React.JSX.Element {
             <div className="flex flex-col gap-4">
               <div className="flex gap-4 items-center">
                 <FilePicker
-                  label="Обрати PDF"
+                  label="Обрати PDF-файли"
                   accept="application/pdf"
-                  onChange={setPdfFile}
-                  selectedFile={pdfFile}
+                  multiple
+                  onChange={(files) => {
+                    setPdfFiles(files ?? []);
+                    setPdfError(null);
+                    setPdfSuccess(null);
+                  }}
+                  selectedFile={pdfFiles}
                   disabled={pdfLoading}
                 />
               </div>
