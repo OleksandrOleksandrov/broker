@@ -1,3 +1,4 @@
+import unicodedata
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -39,23 +40,89 @@ def _build_transport_documents_row(data: CombinedDocumentData) -> list[str]:
 
 def _identify_file_type(filename: str) -> str:
     """Identify document type from filename."""
-    name = filename.lower()
-    if "cmr" in name or "срм" in name:
+    name = unicodedata.normalize("NFC", filename).lower()
+    if "cmr" in name or unicodedata.normalize("NFC", "срм") in name:
         return "cmr"
     if (
         "invoice" in name
-        or "інвойс" in name
-        or "инвойс" in name
-        or "накладна" in name
-        or "счёт" in name
-        or "счет" in name
+        or unicodedata.normalize("NFC", "інвойс") in name
+        or unicodedata.normalize("NFC", "инвойс") in name
+        or unicodedata.normalize("NFC", "накладна") in name
+        or unicodedata.normalize("NFC", "счёт") in name
+        or unicodedata.normalize("NFC", "счет") in name
     ):
         return "invoice"
     if (
         "application" in name
-        or "заявка" in name
-        or "заявление" in name
-        or "заява" in name
+        or unicodedata.normalize("NFC", "заявка") in name
+        or unicodedata.normalize("NFC", "заявление") in name
+        or unicodedata.normalize("NFC", "заява") in name
     ):
         return "application"
     return "unknown"
+
+
+# Lightweight models for fast parsing - only extract fields needed for TransportDocumentsRow
+class LiteInvoiceItem(BaseModel):
+    oil_group: str = Field(
+        description="Description, if it's oil, take the petrochemicals, such as N700, DEG, SN 70, SN 80, SN 150 etc."
+    )
+    net_weight_kg: Optional[int] = Field(
+        default=None, description="Загальна маса нетто в кілограмах"
+    )
+
+
+class LiteInvoiceData(BaseModel):
+    contract_number: Optional[str] = Field(
+        default=None,
+        description=(
+            "Locate the contract number. Usually it followed by 'Contract №' or 'Contract NO' or something similar. If not found, write 'not found'."
+        ),
+    )
+    items: List[LiteInvoiceItem] = Field(
+        description="Список усіх позицій товарів у таблиці"
+    )
+
+
+class LiteApplicationItem(BaseModel):
+    border_crossing_point: Optional[str] = Field(
+        default=None, description="Пункт перетину кордону"
+    )
+    unloading_city: Optional[str] = Field(
+        description="Адреса розвантаження. Take only the city name from the full address, e.g., 'Львів' or 'Lviv'.",
+    )
+    vehicle_info: Optional[str] = Field(
+        default=None, description="Транспортний засіб (номери авто та причепа)"
+    )
+    carrier_details: Optional["LitePartyDetails"] = Field(
+        default=None, description="Юридичні реквізити Перевізника"
+    )
+
+
+class LitePartyDetails(BaseModel):
+    name: Optional[str] = Field(default=None, description="Найменування компанії / ФОП")
+
+
+class LiteCMRCargoItem(BaseModel):
+    name: Optional[str] = Field(
+        default=None,
+        description="9 Kravas nosaukums / Name of the goods[span_5](start_span)[span_5](end_span)",
+    )
+
+
+class LiteCMRDocument(BaseModel):
+    delivery_city: Optional[str] = Field(
+        default=None,
+        description="3 Kravas izkraušanas vieta / Place of delivery of the goods. Take only the city name from the full address, e.g., 'Rīga' or 'Riga'.",
+    )
+    cargo_items: List[LiteCMRCargoItem] = Field(
+        default_factory=list,
+        description="Cargo details table (Fields 6-12)[span_19](start_span)[span_19](end_span)",
+    )
+    carrier: Optional[LitePartyDetails] = Field(
+        default=None,
+        description="16 Pārvadātājs / Carrier/forwarder[span_21](start_span)[span_21](end_span)",
+    )
+
+
+LiteApplicationItem.model_rebuild()

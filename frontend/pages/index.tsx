@@ -64,24 +64,24 @@ function FilePicker<T extends File | File[] | null>({
 
 function identifyFileType(filename: string): 'invoice' | 'application' | 'cmr' | 'unknown' {
   const name = filename.toLowerCase();
-  if (name.includes('cmr') || name.includes('срм')) {
+  if (name.normalize().includes('cmr'.normalize()) || name.normalize().includes('срм'.normalize())) {
     return 'cmr';
   }
   if (
-    name.includes('invoice') ||
-    name.includes('інвойс') ||
-    name.includes('инвойс') ||
-    name.includes('накладна') ||
-    name.includes('счёт') ||
-    name.includes('счет')
+    name.normalize().includes('invoice'.normalize()) ||
+    name.normalize().includes('інвойс'.normalize()) ||
+    name.normalize().includes('инвойс'.normalize()) ||
+    name.normalize().includes('накладна'.normalize()) ||
+    name.normalize().includes('счёт'.normalize()) ||
+    name.normalize().includes('счет'.normalize())
   ) {
     return 'invoice';
   }
   if (
-    name.includes('application') ||
-    name.includes('заявка') ||
-    name.includes('заявление') ||
-    name.includes('заява')
+    name.normalize().includes('application'.normalize()) ||
+    name.normalize().includes('заявка'.normalize()) ||
+    name.normalize().includes('заявление'.normalize()) ||
+    name.normalize().includes('заява'.normalize())
   ) {
     return 'application';
   }
@@ -116,7 +116,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
 
   const handlePdfUpload = async () => {
     if (pdfFiles.length === 0) {
-      setPdfError('Будь ласка, оберіть PDF-файл');
+      setPdfError('Будь ласка, оберіть файл');
       return;
     }
 
@@ -179,7 +179,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
 
   const handleUpload = async () => {
     if (!file) {
-      setError('Будь ласка, оберіть PDF-файл');
+      setError('Будь ласка, оберіть файл');
       return;
     }
 
@@ -227,7 +227,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
 
   const handleApplicationUpload = async () => {
     if (!applicationFile) {
-      setApplicationError('Будь ласка, оберіть PDF-файл заявки');
+      setApplicationError('Будь ласка, оберіть файл заявки');
       return;
     }
 
@@ -268,7 +268,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
 
   const handleCmrUpload = async () => {
     if (!cmrFile) {
-      setCmrError('Будь ласка, оберіть PDF-файл CMR');
+      setCmrError('Будь ласка, оберіть файл CMR');
       return;
     }
 
@@ -297,7 +297,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
 
   const handleCombinedUpload = async () => {
     if (combinedFiles.length !== 3) {
-      setCombinedError('Будь ласка, оберіть усі три PDF-файли');
+      setCombinedError('Будь ласка, оберіть усі три файли');
       return;
     }
 
@@ -422,7 +422,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-gray-800">
-          Завантажте PDF файли для обробки.
+          Завантажте файли для обробки.
         </h1>
 
         <div className="flex flex-col lg:flex-row gap-6 mb-8">
@@ -504,7 +504,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
                 <div className="flex items-center gap-2 mt-1">
                   <input
                     type="file"
-                    accept="application/pdf"
+                    accept="application/pdf,image/jpeg,image/png,image/webp,image/bmp,image/tiff"
                     multiple
                     id="combined-file-input"
                     onChange={(e) => {
@@ -519,7 +519,7 @@ export default function InvoiceParserApp(): React.JSX.Element {
                     htmlFor="combined-file-input"
                     className={`inline-block ${combinedLoading ? 'bg-gray-100 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'} text-gray-800 font-semibold px-4 py-2 rounded transition-colors`}
                   >
-                    Обрати 3 PDF
+                    Обрати 3 файли
                   </label>
                   <span className="text-sm text-gray-600 truncate">
                     {combinedFiles.length > 0
@@ -577,12 +577,12 @@ export default function InvoiceParserApp(): React.JSX.Element {
         {/* Форма завантаження інвойсу */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
           <label className="block text-gray-700 font-semibold mb-2">
-            Завантажте PDF-інвойс:
+            Завантажте файл інвойсу:
           </label>
           <div className="flex gap-4 items-center">
             <FilePicker
               label="Обрати PDF"
-              accept="application/pdf"
+              accept="application/pdf,image/jpeg,image/png,image/webp,image/bmp,image/tiff"
               onChange={setFile}
               selectedFile={file}
               disabled={loading}
@@ -719,12 +719,12 @@ export default function InvoiceParserApp(): React.JSX.Element {
         {/* Форма завантаження заявки */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
           <label className="block text-gray-700 font-semibold mb-2">
-            Завантажте PDF-транспортну заявку:
+            Завантажте файл транспортної заявки:
           </label>
           <div className="flex gap-4 items-center">
             <FilePicker
               label="Обрати PDF"
-              accept="application/pdf"
+              accept="application/pdf,image/jpeg,image/png,image/webp,image/bmp,image/tiff"
               onChange={setApplicationFile}
               selectedFile={applicationFile}
               disabled={applicationLoading}
@@ -843,12 +843,12 @@ export default function InvoiceParserApp(): React.JSX.Element {
 
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
           <label className="block text-gray-700 font-semibold mb-2">
-            Завантажте CMR для обробки:
+            Завантажте файл CMR для обробки:
           </label>
           <div className="flex gap-4 items-center">
             <FilePicker
               label="Обрати PDF"
-              accept="application/pdf"
+              accept="application/pdf,image/jpeg,image/png,image/webp,image/bmp,image/tiff"
               onChange={handleCmrFileChange}
               selectedFile={cmrFile}
               disabled={cmrLoading}
