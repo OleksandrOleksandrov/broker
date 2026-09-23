@@ -1,7 +1,8 @@
-export interface FilePickerProps {
+export interface FilePickerProps<T extends File | File[] | null = File | null> {
   label: string;
   accept?: string;
-  onChange: (file: File | null) => void;
-  selectedFile: File | null;
+  onChange: (value: T) => void;
+  selectedFile: T;
+  multiple?: boolean;
   disabled?: boolean;
 }
