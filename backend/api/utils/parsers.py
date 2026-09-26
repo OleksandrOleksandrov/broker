@@ -82,7 +82,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
     logger.info(
         "Starting lite invoice parsing",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "dpi": dpi,
             "model": gpt_model,
         }
@@ -94,7 +94,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
     logger.info(
         "File converted to images",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "num_pages": len(images),
             "dpi": dpi,
         }
@@ -130,7 +130,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
     logger.info(
         "Lite invoice parsing completed",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "contract_number": parsed.contract_number,
             "num_items": len(parsed.items) if parsed.items else 0,
             "duration_ms": round(duration_ms, 1),
@@ -152,7 +152,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
     logger.info(
         "Starting lite application parsing",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "dpi": dpi,
             "model": gpt_model,
         }
@@ -164,7 +164,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
     logger.info(
         "File converted to images",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "num_pages": len(images),
             "dpi": dpi,
         }
@@ -201,7 +201,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
     logger.info(
         "Lite application parsing completed",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "border_crossing_point": parsed.border_crossing_point,
             "unloading_city": parsed.unloading_city,
             "duration_ms": round(duration_ms, 1),
@@ -223,7 +223,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
     logger.info(
         "Starting lite CMR parsing",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "dpi": dpi,
             "model": gpt_model,
         }
@@ -235,7 +235,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
     logger.info(
         "File converted to images",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "num_pages": len(images),
             "dpi": dpi,
         }
@@ -271,7 +271,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
     logger.info(
         "Lite CMR parsing completed",
         extra={
-            "filename": getattr(file, 'filename', 'unknown'),
+            "file_name": getattr(file, 'filename', 'unknown'),
             "delivery_city": parsed.delivery_city,
             "num_cargo_items": len(parsed.cargo_items) if parsed.cargo_items else 0,
             "duration_ms": round(duration_ms, 1),
