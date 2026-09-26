@@ -8,13 +8,10 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import ApplicationItem
-from ..utils import build_image_payload, process_file_to_images, find_suspicious_address_token
+from ..utils import build_image_payload, process_file_to_images, find_suspicious_address_token, get_dpi, get_gpt_model
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["application"])
-
-dpi = int(os.getenv("PDF_DPI", "350"))
-gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 logger = get_logger("application")
 
@@ -30,7 +27,10 @@ async def parse_application(
         )
 
     client = AsyncOpenAI(api_key=api_key)
-    
+
+    dpi = get_dpi()
+    gpt_model = get_gpt_model()
+
     logger.info(
         "Starting application parsing",
         extra={

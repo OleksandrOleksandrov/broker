@@ -15,12 +15,9 @@ from ..models import (
     TransportDocumentsRow,
     ApplicationItem,
 )
-from .image import build_image_payload, process_file_to_images
+from .image import build_image_payload, process_file_to_images, get_dpi, get_gpt_model
 from .text import normalize_quotes
 from .logging_config import get_logger
-
-dpi = int(os.getenv("PDF_DPI", "350"))
-gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 _SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
 
@@ -78,6 +75,9 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
+
+    dpi = get_dpi()
+    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting lite invoice parsing",
@@ -149,6 +149,9 @@ async def parse_lite_application(file) -> LiteApplicationItem:
 
     client = AsyncOpenAI(api_key=api_key)
 
+    dpi = get_dpi()
+    gpt_model = get_gpt_model()
+
     logger.info(
         "Starting lite application parsing",
         extra={
@@ -219,6 +222,9 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
+
+    dpi = get_dpi()
+    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting lite CMR parsing",

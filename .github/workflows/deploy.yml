@@ -14,6 +14,16 @@ on:
           - dev
           - staging
           - prod
+      pdf_dpi:
+        description: 'DPI for PDF to image conversion'
+        required: false
+        default: '350'
+        type: string
+      gpt_model:
+        description: 'OpenAI GPT model ID for parsing'
+        required: false
+        default: 'gpt-4o-2024-11-20'
+        type: string
 
 permissions:
   id-token: write
@@ -75,6 +85,8 @@ jobs:
         env:
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          TF_VAR_pdf_dpi: ${{ github.event.inputs.pdf_dpi || '350' }}
+          TF_VAR_gpt_model: ${{ github.event.inputs.gpt_model || 'gpt-4o-2024-11-20' }}
 
       - name: Deployment Summary
         run: |

@@ -8,13 +8,10 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import InvoiceData, InvoiceItem, UktZedSuggestion
-from ..utils import get_uktzed_code, build_image_payload, process_file_to_images
+from ..utils import get_uktzed_code, build_image_payload, process_file_to_images, get_dpi, get_gpt_model
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["invoice"])
-
-dpi = int(os.getenv("PDF_DPI", "350"))
-gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 logger = get_logger("invoice")
 
@@ -31,6 +28,9 @@ async def parse_invoice(
         )
 
     client = AsyncOpenAI(api_key=api_key)
+
+    dpi = get_dpi()
+    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting invoice parsing",

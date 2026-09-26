@@ -6,6 +6,8 @@ from .image import (
     build_image_payload,
     convert_pdf_to_images,
     process_file_to_images,
+    get_dpi,
+    get_gpt_model,
 )
 from .pdf import compress_single_pdf
 from .text import normalize_quotes
@@ -26,6 +28,8 @@ __all__ = [
     "build_image_payload",
     "convert_pdf_to_images",
     "process_file_to_images",
+    "get_dpi",
+    "get_gpt_model",
     "compress_single_pdf",
     "normalize_quotes",
     "get_uktzed_code",

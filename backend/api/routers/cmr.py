@@ -7,13 +7,10 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import CMRDocument
-from ..utils import build_image_payload, process_file_to_images
+from ..utils import build_image_payload, process_file_to_images, get_dpi, get_gpt_model
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["cmr"])
-
-dpi = int(os.getenv("PDF_DPI", "350"))
-gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 logger = get_logger("cmr")
 
@@ -29,7 +26,10 @@ async def parse_cmr(
         )
 
     client = AsyncOpenAI(api_key=api_key)
-    
+
+    dpi = get_dpi()
+    gpt_model = get_gpt_model()
+
     logger.info(
         "Starting CMR parsing",
         extra={

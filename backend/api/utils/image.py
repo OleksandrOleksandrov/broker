@@ -17,6 +17,22 @@ logger = logging.getLogger("broker.api.utils.image")
 POPPLER_PATH = os.getenv("POPPLER_PATH")
 
 
+def get_dpi() -> int:
+    """Read PDF_DPI from the environment at request time.
+
+    Lambda environment variables are available during the init phase and
+    remain available on every invocation, so reading inside a function
+    (rather than at module-import time) keeps the value fresh even with
+    SnapStart, where module-level code is captured in the snapshot.
+    """
+    return int(os.getenv("PDF_DPI", "350"))
+
+
+def get_gpt_model() -> str:
+    """Read GPT_MODEL from the environment at request time."""
+    return os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
+
+
 async def convert_pdf_to_images(pdf_bytes: bytes, dpi: int) -> List[Image.Image]:
     """Run the blocking Poppler conversion outside the event loop."""
     kwargs = {"dpi": dpi}

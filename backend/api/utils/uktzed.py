@@ -1,18 +1,17 @@
 """UKT ZED classification utilities."""
 
-import os
 from typing import Optional
 
 from openai import OpenAI
 
 from ..models import UktZedSuggestion
-
-gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
+from .image import get_gpt_model
 
 
 def get_uktzed_code(
     client: OpenAI, item_description: str, article: Optional[str]
 ) -> UktZedSuggestion:
+    gpt_model = get_gpt_model()
     prompt = f"Товар: {item_description}. Артикул: {article or 'не вказано'}."
 
     completion = client.beta.chat.completions.parse(
