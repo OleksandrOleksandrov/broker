@@ -1,6 +1,7 @@
 """Invoice parsing router."""
 
 import os
+import time
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -8,11 +9,14 @@ from openai import AsyncOpenAI
 
 from ..models import InvoiceData, InvoiceItem, UktZedSuggestion
 from ..utils import get_uktzed_code, build_image_payload, process_file_to_images
+from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["invoice"])
 
-dpi = 400
+dpi = int(os.getenv("PDF_DPI", "450"))
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
+
+logger = get_logger("invoice")
 
 
 @router.post("/parse-invoice", response_model=InvoiceData)
@@ -27,7 +31,28 @@ async def parse_invoice(
         )
 
     client = AsyncOpenAI(api_key=api_key)
+
+    logger.info(
+        "Starting invoice parsing",
+        extra={
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "dpi": dpi,
+            "model": gpt_model,
+        },
+    )
+    start_time = time.perf_counter()
+
     images = await process_file_to_images(file, dpi=dpi)
+
+    logger.info(
+        "File converted to images",
+        extra={
+            "filename": file.filename,
+            "num_pages": len(images),
+            "dpi": dpi,
+        },
+    )
 
     content_payload = [
         {
@@ -56,15 +81,39 @@ async def parse_invoice(
             response_format=InvoiceData,
             temperature=0.0,
         )
-    except Exception:
+    except Exception as e:
+        logger.exception(
+            "Invoice parsing failed",
+            extra={
+                "filename": file.filename,
+                "error": str(e),
+                "duration_ms": (time.perf_counter() - start_time) * 1000,
+            },
+        )
         raise
 
     parsed_data = completion.choices[0].message.parsed
 
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(
+        "Invoice parsing completed",
+        extra={
+            "filename": file.filename,
+            "contract_number": parsed_data.contract_number,
+            "num_items": len(parsed_data.items) if parsed_data.items else 0,
+            "duration_ms": round(duration_ms, 1),
+            "dpi": dpi,
+            "model": gpt_model,
+        },
+    )
+
     if parse_uktzed and parsed_data.items:
+
         async def classify(item: InvoiceItem) -> None:
             try:
-                item.uktzed_suggestion = await get_uktzed_code(client, item.description, item.article)
+                item.uktzed_suggestion = await get_uktzed_code(
+                    client, item.description, item.article
+                )
             except Exception:
                 item.uktzed_suggestion = UktZedSuggestion(
                     code="0000000000",
@@ -73,6 +122,7 @@ async def parse_invoice(
                 )
 
         import asyncio
+
         await asyncio.gather(*(classify(item) for item in parsed_data.items))
     else:
         for item in parsed_data.items:

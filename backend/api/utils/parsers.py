@@ -2,6 +2,7 @@
 
 import os
 import re
+import time
 import unicodedata
 from typing import List, Optional
 
@@ -16,6 +17,7 @@ from ..models import (
 )
 from .image import build_image_payload, process_file_to_images
 from .text import normalize_quotes
+from .logging_config import get_logger
 
 dpi = 400
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
@@ -28,6 +30,8 @@ _ADDRESS_FIELDS = (
     "customs_inbound_address",
     "unloading_address",
 )
+
+logger = get_logger("parsers")
 
 
 def find_suspicious_address_token(item: ApplicationItem) -> Optional[str]:
@@ -74,7 +78,27 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
+    
+    logger.info(
+        "Starting lite invoice parsing",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    start_time = time.perf_counter()
+    
     images = await process_file_to_images(file, dpi=dpi)
+    
+    logger.info(
+        "File converted to images",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "num_pages": len(images),
+            "dpi": dpi,
+        }
+    )
 
     content_payload = [
         {
@@ -99,7 +123,22 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
         response_format=LiteInvoiceData,
         temperature=0.0,
     )
-    return completion.choices[0].message.parsed
+    
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    parsed = completion.choices[0].message.parsed
+    
+    logger.info(
+        "Lite invoice parsing completed",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "contract_number": parsed.contract_number,
+            "num_items": len(parsed.items) if parsed.items else 0,
+            "duration_ms": round(duration_ms, 1),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    return parsed
 
 
 async def parse_lite_application(file) -> LiteApplicationItem:
@@ -109,7 +148,27 @@ async def parse_lite_application(file) -> LiteApplicationItem:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
+    
+    logger.info(
+        "Starting lite application parsing",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    start_time = time.perf_counter()
+    
     images = await process_file_to_images(file, dpi=dpi)
+    
+    logger.info(
+        "File converted to images",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "num_pages": len(images),
+            "dpi": dpi,
+        }
+    )
 
     content_payload = [
         {
@@ -135,7 +194,22 @@ async def parse_lite_application(file) -> LiteApplicationItem:
         response_format=LiteApplicationItem,
         temperature=0.0,
     )
-    return completion.choices[0].message.parsed
+    
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    parsed = completion.choices[0].message.parsed
+    
+    logger.info(
+        "Lite application parsing completed",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "border_crossing_point": parsed.border_crossing_point,
+            "unloading_city": parsed.unloading_city,
+            "duration_ms": round(duration_ms, 1),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    return parsed
 
 
 async def parse_lite_cmr(file) -> LiteCMRDocument:
@@ -145,7 +219,27 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
+    
+    logger.info(
+        "Starting lite CMR parsing",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    start_time = time.perf_counter()
+    
     images = await process_file_to_images(file, dpi=dpi)
+    
+    logger.info(
+        "File converted to images",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "num_pages": len(images),
+            "dpi": dpi,
+        }
+    )
 
     content_payload = [
         {
@@ -170,7 +264,22 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
         response_format=LiteCMRDocument,
         temperature=0.0,
     )
-    return completion.choices[0].message.parsed
+    
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    parsed = completion.choices[0].message.parsed
+    
+    logger.info(
+        "Lite CMR parsing completed",
+        extra={
+            "filename": getattr(file, 'filename', 'unknown'),
+            "delivery_city": parsed.delivery_city,
+            "num_cargo_items": len(parsed.cargo_items) if parsed.cargo_items else 0,
+            "duration_ms": round(duration_ms, 1),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    return parsed
 
 
 def build_lite_transport_documents_row(

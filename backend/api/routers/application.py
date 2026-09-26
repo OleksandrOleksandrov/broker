@@ -1,6 +1,7 @@
 """Application parsing router."""
 
 import os
+import time
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -8,11 +9,14 @@ from openai import AsyncOpenAI
 
 from ..models import ApplicationItem
 from ..utils import build_image_payload, process_file_to_images, find_suspicious_address_token
+from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["application"])
 
 dpi = 400
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
+
+logger = get_logger("application")
 
 
 @router.post("/parse-application", response_model=ApplicationItem)
@@ -26,7 +30,28 @@ async def parse_application(
         )
 
     client = AsyncOpenAI(api_key=api_key)
+    
+    logger.info(
+        "Starting application parsing",
+        extra={
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
+    start_time = time.perf_counter()
+    
     images = await process_file_to_images(file, dpi=dpi)
+    
+    logger.info(
+        "File converted to images",
+        extra={
+            "filename": file.filename,
+            "num_pages": len(images),
+            "dpi": dpi,
+        }
+    )
 
     content_payload = [
         {
@@ -61,7 +86,7 @@ async def parse_application(
             user_text = (
                 user_text + "\n\nУВАГА: попередня відповідь містила підозрілий токен "
                 f"{retry_hint!r} (цифра після '/' або '-' у номері будинку). "
-                "Перечитай адресу в документі та виправ її. Після '/' або '-' має стояти ЛІТЕРА."
+                "Перечитай адресу в документі та виправ її. После '/' або '-' має стояти ЛІТЕРА."
             )
         payload = [{"type": "text", "text": user_text}, *content_payload[1:]]
         completion = await client.beta.chat.completions.parse(
@@ -76,10 +101,35 @@ async def parse_application(
         return completion.choices[0].message.parsed
 
     parsed = await _extract()
+    
+    retry_count = 0
     for _attempt in range(2):
         offending = find_suspicious_address_token(parsed)
         if not offending:
             break
+        retry_count += 1
+        logger.warning(
+            "Suspicious address token detected, retrying",
+            extra={
+                "filename": file.filename,
+                "offending_token": offending,
+                "attempt": retry_count,
+            }
+        )
         parsed = await _extract(retry_hint=offending)
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(
+        "Application parsing completed",
+        extra={
+            "filename": file.filename,
+            "application_number": getattr(parsed, 'application_number', None),
+            "border_crossing_point": getattr(parsed, 'border_crossing_point', None),
+            "retry_count": retry_count,
+            "duration_ms": round(duration_ms, 1),
+            "dpi": dpi,
+            "model": gpt_model,
+        }
+    )
 
     return parsed

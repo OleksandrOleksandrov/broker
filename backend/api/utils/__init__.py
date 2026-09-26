@@ -18,6 +18,7 @@ from .parsers import (
     find_suspicious_address_token,
     _identify_file_type,
 )
+from .logging_config import setup_logging, get_logger
 
 __all__ = [
     "crop_whitespace",
@@ -34,4 +35,6 @@ __all__ = [
     "build_lite_transport_documents_row",
     "find_suspicious_address_token",
     "_identify_file_type",
+    "setup_logging",
+    "get_logger",
 ]

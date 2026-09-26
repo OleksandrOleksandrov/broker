@@ -14,12 +14,16 @@ from api.routers import (
     export_router,
     pdf_router,
 )
+from api.utils.logging_config import setup_logging
 
 load_dotenv()
 
-logger = logging.getLogger("broker.api")
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+logger = setup_logging(
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+    log_group=os.getenv("CLOUDWATCH_LOG_GROUP"),
+    stream_name=os.getenv("CLOUDWATCH_LOG_STREAM"),
+    region_name=os.getenv("AWS_REGION"),
+)
 
 app = FastAPI(
     title="Broker AI Assistant",

@@ -76,7 +76,7 @@ class LiteInvoiceData(BaseModel):
     contract_number: Optional[str] = Field(
         default=None,
         description=(
-            "Locate the contract number. Usually it followed by 'Contract №' or 'Contract NO' or something similar. If not found, write 'not found'."
+            "Carefully locate the contract number. Usually it followed by 'Contract №' or 'Contract NO' or something similar. If not found, write 'not found'."
         ),
     )
     items: List[LiteInvoiceItem] = Field(
