@@ -70,6 +70,18 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "pdf_dpi" {
+  description = "DPI for PDF to image conversion"
+  type        = string
+  default     = "350"
+}
+
+variable "gpt_model" {
+  description = "OpenAI GPT model ID for parsing"
+  type        = string
+  default     = "gpt-4o-2024-11-20"
+}
+
 variable "lambda_snap_start" {
   description = "SnapStart configuration for Lambda function (PublishedVersions or None)"
   type        = string

@@ -210,7 +210,7 @@ resource "aws_lambda_function" "api" {
   handler          = "lambda_handler.handler"
   runtime          = "python3.12"
   architectures    = ["arm64"]
-  memory_size      = 512
+  memory_size      = 1536
   timeout          = var.lambda_timeout
   tags             = local.common_tags
 
@@ -227,6 +227,8 @@ resource "aws_lambda_function" "api" {
       LD_LIBRARY_PATH  = var.ld_library_path
       POPPLER_PATH     = var.poppler_path
       OPENAI_API_KEY   = var.openai_api_key
+      PDF_DPI          = var.pdf_dpi
+      GPT_MODEL        = var.gpt_model
     }
   }
 
