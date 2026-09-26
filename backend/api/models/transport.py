@@ -76,18 +76,11 @@ class LiteInvoiceData(BaseModel):
     contract_number: Optional[str] = Field(
         default=None,
         description=(
-            "You are analyzing a potentially low-quality, blurry, or noisy scanned document. Locate and extract the primary contract number using the following instructions:"
-            "1. Flexible Label Matching:"
-            "- Look for terms like 'Contract №', 'Contract No.', 'Contract #', 'Agreement No.', 'Contr. No', 'Ref No.', or similar labels near document headers, title blocks, or top corners."
-            "- Account for OCR artifacts where symbols or letters are distorted (e.g., '№' misread as 'N°', H°', 'S/N', or 'N.'; 'Contract' misread as 'C0ntract', 'Contr', or 'Cntract')."
-            "2. Character Disambiguation:"
-            "- Infer ambiguous characters based on common code structures (e.g., distinguishing digit '0' from letter 'O', or digit '1' from letter 'I'/'l')."
-            "3. Spatial Fallback:"
-            "- If the label is partially smudged or missing, look for prominent alphanumeric identifiers (e.g., '2024/CT-8891' or 'ABC-12345') located near the document title or header section."
-            "4. Output Rules:"
-            "- Output ONLY the extracted contract number itself (excluding the label like 'Contract No:')."
-            "- Do not include extra commentary, punctuation, or formatting."
-            "- If no contract number can be reliably identified, return strictly 'not found'."
+            "Analyze the provided document scan to extract the contract number by following these steps:"
+            "Step 1 - Visual Inspection: Briefly describe the scan condition at the top header area (e.g., clarity, smudges, faded ink)."
+            "Step 2 - Identify Candidates: List any text strings that resemble a contract label or alphanumeric sequence, even if partially readable or distorted by noise."
+            "Step 3 - Verification: Determine which candidate is most likely the actual contract number, correcting obvious OCR letter/number misreadings (e.g., 'O' vs '0', 'l' vs '1')."
+            "Step 4 - Final Result: Output the final value on a new line in the format: \"RESULT: [value]\" or \"RESULT: not found\"."
         ),
     )
     items: List[LiteInvoiceItem] = Field(
