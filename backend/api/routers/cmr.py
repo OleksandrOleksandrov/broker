@@ -25,7 +25,7 @@ async def parse_cmr(
         )
 
     client = AsyncOpenAI(api_key=api_key)
-    images, is_original = await process_file_to_images(file, dpi=dpi)
+    images = await process_file_to_images(file, dpi=dpi)
 
     content_payload = [
         {
@@ -44,7 +44,7 @@ async def parse_cmr(
         }
     ]
 
-    content_payload.extend(await build_image_payload(images, is_original))
+    content_payload.extend(await build_image_payload(images))
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,

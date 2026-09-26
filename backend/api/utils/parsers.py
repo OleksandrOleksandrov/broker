@@ -74,7 +74,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
-    images, is_original = await process_file_to_images(file, dpi=dpi)
+    images = await process_file_to_images(file, dpi=dpi)
 
     content_payload = [
         {
@@ -85,7 +85,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
             ),
         }
     ]
-    content_payload.extend(await build_image_payload(images, is_original))
+    content_payload.extend(await build_image_payload(images))
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,
@@ -109,7 +109,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
-    images, is_original = await process_file_to_images(file, dpi=dpi)
+    images = await process_file_to_images(file, dpi=dpi)
 
     content_payload = [
         {
@@ -121,7 +121,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
             ),
         }
     ]
-    content_payload.extend(await build_image_payload(images, is_original))
+    content_payload.extend(await build_image_payload(images))
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,
@@ -145,7 +145,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
         raise ValueError("OPENAI_API_KEY not found in environment")
 
     client = AsyncOpenAI(api_key=api_key)
-    images, is_original = await process_file_to_images(file, dpi=dpi)
+    images = await process_file_to_images(file, dpi=dpi)
 
     content_payload = [
         {
@@ -156,7 +156,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
             ),
         }
     ]
-    content_payload.extend(await build_image_payload(images, is_original))
+    content_payload.extend(await build_image_payload(images))
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,

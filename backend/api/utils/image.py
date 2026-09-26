@@ -7,6 +7,7 @@ import logging
 import os
 from typing import List
 
+import numpy as np
 from pdf2image import convert_from_bytes
 from PIL import Image
 
@@ -69,7 +70,7 @@ async def process_file_to_images(file, dpi: int):
         image = crop_whitespace(image)
         logger.info("Cropped image to %dx%d", image.width, image.height)
 
-        return [image], True  # Return flag indicating it's an original image
+        return [image]
     else:
         # Process as PDF
         images = await convert_pdf_to_images(content, dpi)
@@ -77,54 +78,70 @@ async def process_file_to_images(file, dpi: int):
         cropped_images = [crop_whitespace(img) for img in images]
         for i, img in enumerate(cropped_images):
             logger.info("Cropped page %d to %dx%d", i + 1, img.width, img.height)
-        return cropped_images, False
+        return cropped_images
 
 
-def crop_whitespace(image: Image.Image, threshold: int = 250) -> Image.Image:
+def crop_whitespace(
+    image: Image.Image,
+    threshold: int = 245,
+    noise_tolerance: float = 0.02,
+    padding: int = 10,
+) -> Image.Image:
     """Crop whitespace/margins from document image.
 
     Args:
         image: PIL Image to crop
-        threshold: Pixel value threshold (0-255) to consider as whitespace.
-                   Pixels with all RGB values >= threshold are considered whitespace.
+        threshold: Pixel value threshold (0-255). Pixels with all RGB values
+                   >= threshold are considered whitespace.
+        noise_tolerance: Maximum fraction of noise pixels allowed per row/column
+                         before that row/column is considered content. This filters
+                         out isolated speckles, shadows, and compression artifacts
+                         common in scanned documents.
+        padding: Extra pixels to keep around the detected content area.
+
     Returns:
         Cropped PIL Image with whitespace removed.
     """
     if image.mode != "RGB":
         image = image.convert("RGB")
 
-    arr = image.load()
-    width, height = image.size
+    # Convert to numpy array for efficient operations
+    arr = np.array(image)
+    height, width = arr.shape[:2]
 
-    # Find bounding box of non-whitespace pixels
-    left = width
-    right = 0
-    top = height
-    bottom = 0
+    # Create a mask of non-whitespace pixels (any channel below threshold)
+    non_whitespace = np.any(arr < threshold, axis=2)
 
-    for y in range(height):
-        for x in range(width):
-            r, g, b = arr[x, y]
-            if r < threshold or g < threshold or b < threshold:
-                if x < left:
-                    left = x
-                if x > right:
-                    right = x
-                if y < top:
-                    top = y
-                if y > bottom:
-                    bottom = y
+    # Determine which rows and columns have enough content to be kept
+    # A row/column is considered content if it has at least (noise_tolerance * width/height)
+    # non-whitespace pixels. This filters out isolated noise pixels.
+    row_content_counts = np.sum(non_whitespace, axis=1)
+    col_content_counts = np.sum(non_whitespace, axis=0)
+
+    min_row_pixels = max(1, int(width * noise_tolerance))
+    min_col_pixels = max(1, int(height * noise_tolerance))
+
+    content_rows = row_content_counts >= min_row_pixels
+    content_cols = col_content_counts >= min_col_pixels
+
+    # Find the bounding box of content rows/columns
+    content_row_indices = np.where(content_rows)[0]
+    content_col_indices = np.where(content_cols)[0]
 
     # If no content found, return original
-    if left > right or top > bottom:
+    if len(content_row_indices) == 0 or len(content_col_indices) == 0:
         return image
 
-    # Add small padding to avoid cutting off edges
-    padding = 10
-    left = max(0, left - padding)
+    top = content_row_indices[0]
+    bottom = content_row_indices[-1]
+    left = content_col_indices[0]
+    right = content_col_indices[-1]
+
+    # Add padding to avoid cutting off edges
     top = max(0, top - padding)
-    right = min(width - 1, right + padding)
     bottom = min(height - 1, bottom + padding)
+    left = max(0, left - padding)
+    right = min(width - 1, right + padding)
 
     return image.crop((left, top, right + 1, bottom + 1))
 
@@ -135,31 +152,12 @@ def encode_image_to_base64(image: Image.Image, quality: int = 100) -> str:
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 
-def encode_lossless_image_to_base64(image: Image.Image) -> str:
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG", optimize=True)
-    return base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-
-async def build_image_payload(
-    images: List[Image.Image], is_original_image: bool = False
-) -> List[dict]:
-    """Build image payload for Vision API. Use lossless PNG for original images, high-quality JPEG for PDF renders."""
-    if is_original_image:
-        # Use lossless PNG for original image uploads to preserve quality
-        encoded_images = await asyncio.gather(
-            *(
-                asyncio.to_thread(encode_lossless_image_to_base64, image)
-                for image in images
-            )
-        )
-        mime_type = "image/png"
-    else:
-        # Use high-quality JPEG for PDF renders
-        encoded_images = await asyncio.gather(
-            *(asyncio.to_thread(encode_image_to_base64, image, 100) for image in images)
-        )
-        mime_type = "image/jpeg"
+async def build_image_payload(images: List[Image.Image]) -> List[dict]:
+    """Build image payload for Vision API using high-quality JPEG."""
+    encoded_images = await asyncio.gather(
+        *(asyncio.to_thread(encode_image_to_base64, image, 100) for image in images)
+    )
+    mime_type = "image/jpeg"
     return [
         {
             "type": "image_url",

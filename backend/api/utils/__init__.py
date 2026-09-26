@@ -3,7 +3,6 @@
 from .image import (
     crop_whitespace,
     encode_image_to_base64,
-    encode_lossless_image_to_base64,
     build_image_payload,
     convert_pdf_to_images,
     process_file_to_images,
@@ -23,7 +22,6 @@ from .parsers import (
 __all__ = [
     "crop_whitespace",
     "encode_image_to_base64",
-    "encode_lossless_image_to_base64",
     "build_image_payload",
     "convert_pdf_to_images",
     "process_file_to_images",
