@@ -15,7 +15,7 @@ from ..models import (
     TransportDocumentsRow,
     ApplicationItem,
 )
-from .image import build_image_payload, process_file_to_images, get_dpi, get_gpt_model
+from .image import build_image_payload, process_file_to_images, get_dpi, get_gpt_model, get_temperature_kwargs
 from .text import normalize_quotes
 from .logging_config import get_logger
 
@@ -121,7 +121,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
             {"role": "user", "content": content_payload},
         ],
         response_format=LiteInvoiceData,
-        temperature=0.0,
+        **get_temperature_kwargs(gpt_model),
     )
 
     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -195,7 +195,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
             {"role": "user", "content": content_payload},
         ],
         response_format=LiteApplicationItem,
-        temperature=0.0,
+        **get_temperature_kwargs(gpt_model),
     )
 
     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -268,7 +268,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
             {"role": "user", "content": content_payload},
         ],
         response_format=LiteCMRDocument,
-        temperature=0.0,
+        **get_temperature_kwargs(gpt_model),
     )
 
     duration_ms = (time.perf_counter() - start_time) * 1000

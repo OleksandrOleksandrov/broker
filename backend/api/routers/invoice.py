@@ -8,7 +8,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import InvoiceData, InvoiceItem, UktZedSuggestion
-from ..utils import get_uktzed_code, build_image_payload, process_file_to_images, get_dpi, get_gpt_model
+from ..utils import get_uktzed_code, build_image_payload, process_file_to_images, get_dpi, get_gpt_model, get_temperature_kwargs
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["invoice"])
@@ -79,7 +79,7 @@ async def parse_invoice(
                 {"role": "user", "content": content_payload},
             ],
             response_format=InvoiceData,
-            temperature=0.0,
+            **get_temperature_kwargs(gpt_model),
         )
     except Exception as e:
         logger.exception(

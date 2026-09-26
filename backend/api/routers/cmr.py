@@ -7,7 +7,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import CMRDocument
-from ..utils import build_image_payload, process_file_to_images, get_dpi, get_gpt_model
+from ..utils import build_image_payload, process_file_to_images, get_dpi, get_gpt_model, get_temperature_kwargs
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["cmr"])
@@ -86,7 +86,7 @@ async def parse_cmr(
                 {"role": "user", "content": content_payload},
             ],
             response_format=CMRDocument,
-            temperature=0.0,
+            **get_temperature_kwargs(gpt_model),
         )
     except Exception as e:
         logger.exception(

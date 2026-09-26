@@ -33,6 +33,16 @@ def get_gpt_model() -> str:
     return os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 
+def get_temperature_kwargs(model: str) -> dict:
+    """Return temperature kwargs for the API call.
+    
+    Only gpt-4o models support temperature parameter.
+    """
+    if "gpt-4o" in model.lower():
+        return {"temperature": 0.0}
+    return {}
+
+
 async def convert_pdf_to_images(pdf_bytes: bytes, dpi: int) -> List[Image.Image]:
     """Run the blocking Poppler conversion outside the event loop."""
     kwargs = {"dpi": dpi}

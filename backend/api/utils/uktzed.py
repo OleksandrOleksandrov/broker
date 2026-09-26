@@ -5,7 +5,7 @@ from typing import Optional
 from openai import OpenAI
 
 from ..models import UktZedSuggestion
-from .image import get_gpt_model
+from .image import get_gpt_model, get_temperature_kwargs
 
 
 def get_uktzed_code(
@@ -25,6 +25,6 @@ def get_uktzed_code(
             {"role": "user", "content": prompt},
         ],
         response_format=UktZedSuggestion,
-        temperature=0.0,
+        **get_temperature_kwargs(gpt_model),
     )
     return completion.choices[0].message.parsed

@@ -8,7 +8,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import ApplicationItem
-from ..utils import build_image_payload, process_file_to_images, find_suspicious_address_token, get_dpi, get_gpt_model
+from ..utils import build_image_payload, process_file_to_images, find_suspicious_address_token, get_dpi, get_gpt_model, get_temperature_kwargs
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["application"])
@@ -96,7 +96,7 @@ async def parse_application(
                 {"role": "user", "content": payload},
             ],
             response_format=ApplicationItem,
-            temperature=0.0,
+            **get_temperature_kwargs(gpt_model),
         )
         return completion.choices[0].message.parsed
 
