@@ -336,7 +336,7 @@ def build_lite_transport_documents_row(
         net_weight_kg,
         border_crossing_point,
         carrier,
-        nomenclature,
+        nomenclature.replace(" ", ""),
         unloading_city,
         "",
         vehicle_number,
