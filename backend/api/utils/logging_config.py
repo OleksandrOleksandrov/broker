@@ -66,8 +66,9 @@ def setup_logging(
     logger.handlers.clear()
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    console_formatter = jsonlogger.JsonFormatter(
+        "%(timestamp)s %(level)s %(name)s %(message)s",
+        timestamp=True,
     )
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
