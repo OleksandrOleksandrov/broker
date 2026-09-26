@@ -12,7 +12,7 @@ from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["cmr"])
 
-dpi = 400
+dpi = int(os.getenv("PDF_DPI", "350"))
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 logger = get_logger("cmr")

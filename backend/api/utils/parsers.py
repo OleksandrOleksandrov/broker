@@ -19,7 +19,7 @@ from .image import build_image_payload, process_file_to_images
 from .text import normalize_quotes
 from .logging_config import get_logger
 
-dpi = int(os.getenv("PDF_DPI", "450"))
+dpi = int(os.getenv("PDF_DPI", "350"))
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 _SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
