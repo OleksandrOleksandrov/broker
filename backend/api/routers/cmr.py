@@ -10,7 +10,7 @@ from ..utils import build_image_payload, process_file_to_images
 
 router = APIRouter(prefix="/api", tags=["cmr"])
 
-dpi = 350
+dpi = 400
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 

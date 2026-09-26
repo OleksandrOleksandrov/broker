@@ -17,7 +17,7 @@ from ..models import (
 from .image import build_image_payload, process_file_to_images
 from .text import normalize_quotes
 
-dpi = 350
+dpi = 400
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
 
 _SUSPICIOUS_ADDRESS_TOKEN = re.compile(r"(?<!\d)(\d{1,3})\s*([/\-])\s*(\d)(?!\d)")
