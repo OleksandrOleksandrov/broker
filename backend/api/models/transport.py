@@ -76,7 +76,18 @@ class LiteInvoiceData(BaseModel):
     contract_number: Optional[str] = Field(
         default=None,
         description=(
-            "Carefully locate the contract number. Usually it followed by 'Contract №' or 'Contract NO' or something similar. If not found, write 'not found'."
+            "You are analyzing a potentially low-quality, blurry, or noisy scanned document. Locate and extract the primary contract number using the following instructions:"
+            "1. Flexible Label Matching:"
+            "- Look for terms like 'Contract №', 'Contract No.', 'Contract #', 'Agreement No.', 'Contr. No', 'Ref No.', or similar labels near document headers, title blocks, or top corners."
+            "- Account for OCR artifacts where symbols or letters are distorted (e.g., '№' misread as 'N°', H°', 'S/N', or 'N.'; 'Contract' misread as 'C0ntract', 'Contr', or 'Cntract')."
+            "2. Character Disambiguation:"
+            "- Infer ambiguous characters based on common code structures (e.g., distinguishing digit '0' from letter 'O', or digit '1' from letter 'I'/'l')."
+            "3. Spatial Fallback:"
+            "- If the label is partially smudged or missing, look for prominent alphanumeric identifiers (e.g., '2024/CT-8891' or 'ABC-12345') located near the document title or header section."
+            "4. Output Rules:"
+            "- Output ONLY the extracted contract number itself (excluding the label like 'Contract No:')."
+            "- Do not include extra commentary, punctuation, or formatting."
+            "- If no contract number can be reliably identified, return strictly 'not found'."
         ),
     )
     items: List[LiteInvoiceItem] = Field(
