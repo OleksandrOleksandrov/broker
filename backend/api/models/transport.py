@@ -79,7 +79,7 @@ class LiteInvoiceData(BaseModel):
             "Analyze the provided document scan to extract the contract number by following these steps:"
             "Step 1 - Visual Inspection: Briefly describe the scan condition at the top header area (e.g., clarity, smudges, faded ink)."
             "Step 2 - Identify Candidates: List any text strings that resemble a contract label or alphanumeric sequence, even if partially readable or distorted by noise."
-            "Step 3 - Verification: Determine which candidate is most likely the actual contract number, correcting obvious OCR letter/number misreadings (e.g., 'O' vs '0', 'l' vs '1')."
+            "Step 3 - Verification: Determine which candidate is most likely the actual contract number, correcting obvious OCR letter/number misreadings, be really carefull as the text can be realy hard to understand (e.g., 'O' vs '0', 'l' vs '1')."
             "Step 4 - Final Result: Output the final value on a new line in the format: \"RESULT: [value]\" or \"RESULT: not found\"."
         ),
     )
