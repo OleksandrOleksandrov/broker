@@ -8,6 +8,7 @@ from .image import (
     process_file_to_images,
     get_dpi,
     get_gpt_model,
+    get_temperature_kwargs,
 )
 from .pdf import compress_single_pdf
 from .text import normalize_quotes
@@ -30,6 +31,7 @@ __all__ = [
     "process_file_to_images",
     "get_dpi",
     "get_gpt_model",
+    "get_temperature_kwargs",
     "compress_single_pdf",
     "normalize_quotes",
     "get_uktzed_code",
