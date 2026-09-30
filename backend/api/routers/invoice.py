@@ -8,7 +8,14 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import InvoiceData, InvoiceItem, UktZedSuggestion
-from ..utils import get_uktzed_code, build_image_payload, process_file_to_images, get_dpi, get_gpt_model, get_temperature_kwargs
+from ..utils import (
+    get_uktzed_code,
+    build_image_payload,
+    process_file_to_images,
+    get_dpi,
+    get_temperature_kwargs,
+    select_model_for_images,
+)
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["invoice"])
@@ -30,15 +37,13 @@ async def parse_invoice(
     client = AsyncOpenAI(api_key=api_key)
 
     dpi = get_dpi()
-    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting invoice parsing",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "content_type": file.content_type,
             "dpi": dpi,
-            "model": gpt_model,
         },
     )
     start_time = time.perf_counter()
@@ -48,11 +53,13 @@ async def parse_invoice(
     logger.info(
         "File converted to images",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "num_pages": len(images),
             "dpi": dpi,
         },
     )
+
+    gpt_model, quality = await select_model_for_images(images)
 
     content_payload = [
         {
@@ -85,7 +92,7 @@ async def parse_invoice(
         logger.exception(
             "Invoice parsing failed",
             extra={
-                "filename": file.filename,
+                "file_name": file.filename,
                 "error": str(e),
                 "duration_ms": (time.perf_counter() - start_time) * 1000,
             },
@@ -98,12 +105,13 @@ async def parse_invoice(
     logger.info(
         "Invoice parsing completed",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "contract_number": parsed_data.contract_number,
             "num_items": len(parsed_data.items) if parsed_data.items else 0,
             "duration_ms": round(duration_ms, 1),
             "dpi": dpi,
             "model": gpt_model,
+            "quality_score": quality.score,
         },
     )
 

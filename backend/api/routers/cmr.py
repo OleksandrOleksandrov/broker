@@ -7,7 +7,13 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import CMRDocument
-from ..utils import build_image_payload, process_file_to_images, get_dpi, get_gpt_model, get_temperature_kwargs
+from ..utils import (
+    build_image_payload,
+    process_file_to_images,
+    get_dpi,
+    get_temperature_kwargs,
+    select_model_for_images,
+)
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["cmr"])
@@ -28,16 +34,14 @@ async def parse_cmr(
     client = AsyncOpenAI(api_key=api_key)
 
     dpi = get_dpi()
-    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting CMR parsing",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "content_type": file.content_type,
             "dpi": dpi,
-            "model": gpt_model,
-        }
+        },
     )
     start_time = time.perf_counter()
     
@@ -46,11 +50,13 @@ async def parse_cmr(
     logger.info(
         "File converted to images",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "num_pages": len(images),
             "dpi": dpi,
-        }
+        },
     )
+
+    gpt_model, quality = await select_model_for_images(images)
 
     content_payload = [
         {
@@ -92,7 +98,7 @@ async def parse_cmr(
         logger.exception(
             "CMR parsing failed",
             extra={
-                "filename": file.filename,
+                "file_name": file.filename,
                 "error": str(e),
                 "duration_ms": (time.perf_counter() - start_time) * 1000,
             }
@@ -105,13 +111,14 @@ async def parse_cmr(
     logger.info(
         "CMR parsing completed",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "cmr_number": getattr(parsed_data, 'cmr_number', None),
             "num_cargo_items": len(parsed_data.cargo_items) if parsed_data.cargo_items else 0,
             "duration_ms": round(duration_ms, 1),
             "dpi": dpi,
             "model": gpt_model,
-        }
+            "quality_score": quality.score,
+        },
     )
 
     return parsed_data

@@ -3,7 +3,7 @@ name = "api"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]>=0.116.1",
+    "fastapi>=0.116.1",
     "fastapi-clerk-auth>=0.0.7",
     "httpx>=0.28.1",
     "mangum>=0.19.0",
@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=12.3.0",
     "pydantic>=2.11.7",
     "pypdf>=6.16.2",
+    "pytesseract>=0.3.13",
     "python-dotenv>=1.1.1",
     "python-jose>=3.5.0",
     "python-multipart>=0.0.9",
@@ -21,4 +22,17 @@ dependencies = [
     "numpy>=1.26.0",
     "watchtower>=3.2.0",
     "python-json-logger>=2.0.7",
+]
+
+# The Lambda limit counts the unzipped size of the function plus its layers, so
+# the runtime dependency list stays lean. `fastapi[standard]` pulls in the
+# `fastapi` and `fastapi-cloud` CLIs, which drag along uvloop, httptools,
+# watchfiles, websockets, fontTools, fastar, rignore and typer - roughly 32 MiB
+# of tooling this service never imports. The CLI is only useful when running
+# the app locally, so it lives here and is not part of the deployed package.
+# Everything `fastapi[standard]` provided that the service actually needs
+# (httpx, python-multipart, uvicorn) is declared explicitly above.
+[dependency-groups]
+dev = [
+    "fastapi-cli[standard]>=0.0.32",
 ]

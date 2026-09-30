@@ -1,12 +1,23 @@
 import logging
 import os
+import sys
 import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import (
+# This module is the ASGI app, but it is reachable as `api.main` when uvicorn
+# is started from backend/ and as a top-level `main` when it is started from
+# backend/api/ (which is what scripts/run_local.py does). The `api` package
+# itself is only importable from backend/, so put that on the path first
+# rather than failing with ModuleNotFoundError depending on the cwd.
+_BACKEND_DIR = str(Path(__file__).resolve().parent.parent)
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+
+from api.routers import (  # noqa: E402
     invoice_router,
     application_router,
     cmr_router,
@@ -14,7 +25,7 @@ from api.routers import (
     export_router,
     pdf_router,
 )
-from api.utils.logging_config import setup_logging
+from api.utils.logging_config import setup_logging  # noqa: E402
 
 load_dotenv()
 

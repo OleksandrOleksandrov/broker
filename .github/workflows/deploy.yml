@@ -26,7 +26,9 @@ jobs:
     environment: ${{ github.event.inputs.environment || 'dev' }}
     env:
       PDF_DPI: ${{ vars.PDF_DPI || '350' }}
-      GPT_MODEL: ${{ vars.GPT_MODEL || 'gpt-4o-2024-11-20' }}
+      GPT_MODEL: ${{ vars.GPT_MODEL || 'gpt-6.1-sol' }}
+      GPT_CHEAP_MODEL: ${{ vars.GPT_CHEAP_MODEL || 'gpt-4o-2024-11-20' }}
+      PDF_QUALITY_THRESHOLD: ${{ vars.PDF_QUALITY_THRESHOLD || '75' }}
     
     steps:
       - name: Checkout code
@@ -80,6 +82,8 @@ jobs:
           TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           TF_VAR_pdf_dpi: ${{ env.PDF_DPI }}
           TF_VAR_gpt_model: ${{ env.GPT_MODEL }}
+          TF_VAR_gpt_cheap_model: ${{ env.GPT_CHEAP_MODEL }}
+          TF_VAR_pdf_quality_threshold: ${{ env.PDF_QUALITY_THRESHOLD }}
 
       - name: Deployment Summary
         run: |

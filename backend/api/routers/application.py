@@ -8,7 +8,14 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import AsyncOpenAI
 
 from ..models import ApplicationItem
-from ..utils import build_image_payload, process_file_to_images, find_suspicious_address_token, get_dpi, get_gpt_model, get_temperature_kwargs
+from ..utils import (
+    build_image_payload,
+    process_file_to_images,
+    find_suspicious_address_token,
+    get_dpi,
+    get_temperature_kwargs,
+    select_model_for_images,
+)
 from ..utils.logging_config import get_logger
 
 router = APIRouter(prefix="/api", tags=["application"])
@@ -29,16 +36,14 @@ async def parse_application(
     client = AsyncOpenAI(api_key=api_key)
 
     dpi = get_dpi()
-    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting application parsing",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "content_type": file.content_type,
             "dpi": dpi,
-            "model": gpt_model,
-        }
+        },
     )
     start_time = time.perf_counter()
     
@@ -47,11 +52,13 @@ async def parse_application(
     logger.info(
         "File converted to images",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "num_pages": len(images),
             "dpi": dpi,
-        }
+        },
     )
+
+    gpt_model, quality = await select_model_for_images(images)
 
     content_payload = [
         {
@@ -111,7 +118,7 @@ async def parse_application(
         logger.warning(
             "Suspicious address token detected, retrying",
             extra={
-                "filename": file.filename,
+                "file_name": file.filename,
                 "offending_token": offending,
                 "attempt": retry_count,
             }
@@ -122,14 +129,15 @@ async def parse_application(
     logger.info(
         "Application parsing completed",
         extra={
-            "filename": file.filename,
+            "file_name": file.filename,
             "application_number": getattr(parsed, 'application_number', None),
             "border_crossing_point": getattr(parsed, 'border_crossing_point', None),
             "retry_count": retry_count,
             "duration_ms": round(duration_ms, 1),
             "dpi": dpi,
             "model": gpt_model,
-        }
+            "quality_score": quality.score,
+        },
     )
 
     return parsed

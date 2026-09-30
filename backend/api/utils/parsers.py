@@ -15,7 +15,13 @@ from ..models import (
     TransportDocumentsRow,
     ApplicationItem,
 )
-from .image import build_image_payload, process_file_to_images, get_dpi, get_gpt_model, get_temperature_kwargs
+from .image import (
+    build_image_payload,
+    process_file_to_images,
+    get_dpi,
+    get_temperature_kwargs,
+)
+from .pdf_quality import select_model_for_images
 from .text import normalize_quotes
 from .logging_config import get_logger
 
@@ -77,14 +83,12 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
     client = AsyncOpenAI(api_key=api_key)
 
     dpi = get_dpi()
-    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting lite invoice parsing",
         extra={
             "file_name": getattr(file, "filename", "unknown"),
             "dpi": dpi,
-            "model": gpt_model,
         },
     )
     start_time = time.perf_counter()
@@ -99,6 +103,8 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
             "dpi": dpi,
         },
     )
+
+    gpt_model, quality = await select_model_for_images(images)
 
     content_payload = [
         {
@@ -136,6 +142,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
             "duration_ms": round(duration_ms, 1),
             "dpi": dpi,
             "model": gpt_model,
+            "quality_score": quality.score,
         },
     )
     return parsed
@@ -150,14 +157,12 @@ async def parse_lite_application(file) -> LiteApplicationItem:
     client = AsyncOpenAI(api_key=api_key)
 
     dpi = get_dpi()
-    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting lite application parsing",
         extra={
             "file_name": getattr(file, "filename", "unknown"),
             "dpi": dpi,
-            "model": gpt_model,
         },
     )
     start_time = time.perf_counter()
@@ -172,6 +177,8 @@ async def parse_lite_application(file) -> LiteApplicationItem:
             "dpi": dpi,
         },
     )
+
+    gpt_model, quality = await select_model_for_images(images)
 
     content_payload = [
         {
@@ -210,6 +217,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
             "duration_ms": round(duration_ms, 1),
             "dpi": dpi,
             "model": gpt_model,
+            "quality_score": quality.score,
         },
     )
     return parsed
@@ -224,14 +232,12 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
     client = AsyncOpenAI(api_key=api_key)
 
     dpi = get_dpi()
-    gpt_model = get_gpt_model()
 
     logger.info(
         "Starting lite CMR parsing",
         extra={
             "file_name": getattr(file, "filename", "unknown"),
             "dpi": dpi,
-            "model": gpt_model,
         },
     )
     start_time = time.perf_counter()
@@ -246,6 +252,8 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
             "dpi": dpi,
         },
     )
+
+    gpt_model, quality = await select_model_for_images(images)
 
     content_payload = [
         {
@@ -283,6 +291,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
             "duration_ms": round(duration_ms, 1),
             "dpi": dpi,
             "model": gpt_model,
+            "quality_score": quality.score,
         },
     )
     return parsed

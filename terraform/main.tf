@@ -220,15 +220,20 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      CORS_ORIGINS     = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
-      S3_BUCKET        = aws_s3_bucket.memory.id
-      USE_S3           = "true"
-      BEDROCK_MODEL_ID = var.bedrock_model_id
-      LD_LIBRARY_PATH  = var.ld_library_path
-      POPPLER_PATH     = var.poppler_path
-      OPENAI_API_KEY   = var.openai_api_key
-      PDF_DPI          = var.pdf_dpi
-      GPT_MODEL        = var.gpt_model
+      CORS_ORIGINS            = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
+      S3_BUCKET               = aws_s3_bucket.memory.id
+      USE_S3                  = "true"
+      BEDROCK_MODEL_ID        = var.bedrock_model_id
+      LD_LIBRARY_PATH         = var.ld_library_path
+      POPPLER_PATH            = var.poppler_path
+      TESSERACT_CMD           = "${var.poppler_path}/tesseract"
+      TESSDATA_PREFIX         = "${dirname(var.poppler_path)}/share/tessdata"
+      OCR_LANG                = var.ocr_lang
+      OPENAI_API_KEY          = var.openai_api_key
+      PDF_DPI                 = var.pdf_dpi
+      GPT_MODEL               = var.gpt_model
+      GPT_CHEAP_MODEL         = var.gpt_cheap_model
+      PDF_QUALITY_THRESHOLD   = var.pdf_quality_threshold
     }
   }
 

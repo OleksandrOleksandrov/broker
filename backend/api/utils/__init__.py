@@ -11,6 +11,14 @@ from .image import (
     get_temperature_kwargs,
 )
 from .pdf import compress_single_pdf
+from .pdf_quality import (
+    QualityReport,
+    pdf_score,
+    select_model_for_images,
+    get_cheap_model,
+    get_expensive_model,
+    get_quality_threshold,
+)
 from .text import normalize_quotes
 from .uktzed import get_uktzed_code
 from .parsers import (
@@ -33,6 +41,12 @@ __all__ = [
     "get_gpt_model",
     "get_temperature_kwargs",
     "compress_single_pdf",
+    "QualityReport",
+    "pdf_score",
+    "select_model_for_images",
+    "get_cheap_model",
+    "get_expensive_model",
+    "get_quality_threshold",
     "normalize_quotes",
     "get_uktzed_code",
     "parse_lite_invoice",
