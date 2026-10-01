@@ -62,6 +62,12 @@ OCR_CHARS_FULL = 600
 # hard failure regardless of the reported confidence.
 OCR_CHARS_FLOOR = 150
 
+# Maximum fraction of ink (black pixels after Otsu binarization) a page may
+# carry and still be considered blank. A real document page is well above this;
+# a blank page, a stray speckle, or a nearly-empty footer lands below it and is
+# skipped without invoking Tesseract. Calibrated against pdf_examples/.
+OCR_BLANK_INK_FRACTION = 0.005
+
 # Relative importance of the two signals. Confidence dominates because it is
 # the direct measure of legibility; volume guards against a nearly blank page
 # being scored as clean.
@@ -167,8 +173,15 @@ def _otsu_threshold(gray: np.ndarray) -> int:
     return int(np.argmax(between_class))
 
 
-def _prepare_for_ocr(image: Image.Image) -> Image.Image:
-    """Binarize and downscale a page for a fast, reliable OCR pass."""
+def _prepare_for_ocr(image: Image.Image) -> tuple[Image.Image, float]:
+    """Binarize and downscale a page for a fast, reliable OCR pass.
+
+    Returns the prepared image together with the fraction of ink (black pixels
+    after Otsu binarization) it carries. The ink fraction is used to skip blank
+    pages before invoking Tesseract: a real document page sits well above
+    ``OCR_BLANK_INK_FRACTION``, while a blank page, stray speckle or nearly-empty
+    footer lands below it and is short-circuited.
+    """
     gray = _to_gray_array(image)
 
     # Otsu separates text from background and neutralises uneven scanner
@@ -177,7 +190,8 @@ def _prepare_for_ocr(image: Image.Image) -> Image.Image:
     threshold = _otsu_threshold(gray)
     binary = np.where(gray > threshold, 255, 0).astype(np.uint8)
 
-    return _downscale(Image.fromarray(binary), OCR_MAX_SIDE)
+    ink_fraction = float(np.mean(binary == 0))
+    return _downscale(Image.fromarray(binary), OCR_MAX_SIDE), ink_fraction
 
 
 def _ocr_languages(pytesseract, prepared: Image.Image) -> Optional[dict]:
@@ -212,7 +226,8 @@ def _ocr_measurements(image: Image.Image) -> Optional[dict]:
     """Return OCR character count and mean confidence for one page.
 
     Returns None when pytesseract or the Tesseract binary is unavailable, or
-    when OCR fails for any other reason.
+    when OCR fails for any other reason. Pages that carry essentially no ink
+    are treated as unreadable (zero characters) without invoking Tesseract.
     """
     try:
         import pytesseract
@@ -227,7 +242,22 @@ def _ocr_measurements(image: Image.Image) -> Optional[dict]:
 
     try:
         pytesseract.pytesseract.tesseract_cmd = cmd
-        data = _ocr_languages(pytesseract, _prepare_for_ocr(image))
+        prepared, ink_fraction = _prepare_for_ocr(image)
+    except Exception as exc:
+        logger.warning("Page preprocessing failed, readability not assessed: %s", exc)
+        return None
+
+    if ink_fraction < OCR_BLANK_INK_FRACTION:
+        # Nothing to read: skip the Tesseract subprocess entirely.
+        logger.info(
+            "Skipping OCR on blank page (ink fraction %.4f < %.4f)",
+            ink_fraction,
+            OCR_BLANK_INK_FRACTION,
+        )
+        return {"chars": 0, "mean_conf": 0.0}
+
+    try:
+        data = _ocr_languages(pytesseract, prepared)
     except Exception as exc:
         logger.warning("OCR failed, readability not assessed: %s", exc)
         return None
