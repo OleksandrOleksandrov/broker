@@ -13,7 +13,7 @@
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | Next.js 15 (Pages Router), React 19, TypeScript, Tailwind CSS v4 |
-| **Backend API** | FastAPI, Python 3.12+, uv |
+| **Backend API** | FastAPI, Python 3.14+, uv |
 | **AI/ML** | OpenAI API (GPT-4o), SageMaker embeddings, Bedrock Nova Pro |
 | **Infrastructure** | AWS (Lambda [arm64], App Runner, CloudFront, S3, API Gateway, SQS, Aurora Serverless v2) |
 | **Auth** | Clerk |
@@ -57,7 +57,7 @@ broker/
 ### Prerequisites
 
 - **Node.js** (18+) and **npm**
-- **Python 3.12+** with **uv** package manager
+- **Python 3.14+** with **uv** package manager
 - **Docker Desktop** (required for Lambda packaging, not needed for local dev)
 - **Git**
 

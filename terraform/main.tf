@@ -196,7 +196,7 @@ resource "aws_lambda_layer_version" "poppler" {
   filename                 = "${path.module}/../backend/poppler_layer.zip"
   layer_name               = "${local.name_prefix}-poppler"
   compatible_architectures = ["arm64"]
-  compatible_runtimes      = ["python3.12"]
+  compatible_runtimes      = ["python3.14"]
   source_code_hash         = filebase64sha256("${path.module}/../backend/poppler_layer.zip")
 }
 
@@ -208,7 +208,7 @@ resource "aws_lambda_function" "api" {
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda_role.arn
   handler          = "lambda_handler.handler"
-  runtime          = "python3.12"
+  runtime          = "python3.14"
   architectures    = ["arm64"]
   memory_size      = 1536
   timeout          = var.lambda_timeout
