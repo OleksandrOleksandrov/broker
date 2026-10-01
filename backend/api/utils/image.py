@@ -194,7 +194,7 @@ def crop_whitespace(
 
 def encode_image_to_base64(image: Image.Image, quality: int = 100) -> str:
     buffered = io.BytesIO()
-    image.save(buffered, format="JPEG", quality=quality, optimize=True)
+    image.save(buffered, format="JPEG", quality=quality)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 

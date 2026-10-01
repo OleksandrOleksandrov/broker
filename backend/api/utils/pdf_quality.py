@@ -203,14 +203,22 @@ def _prepare_for_ocr(image: Image.Image) -> tuple[Image.Image, float]:
     """
     gray = _to_gray_array(image)
 
+    # Downscale the grayscale *before* Otsu binarization. Otsu's threshold is a
+    # histogram statistic and is robust to downscaling, so computing it on the
+    # smaller image avoids the binarize + ink-fraction passes over every pixel
+    # of a high-DPI scan (which can exceed 12M pixels at PDF_DPI=350). The
+    # binary image is already at OCR_MAX_SIDE, so no second downscale is needed.
+    downscaled = _downscale(Image.fromarray(gray), OCR_MAX_SIDE)
+    small_gray = np.asarray(downscaled)
+
     # Otsu separates text from background and neutralises uneven scanner
     # illumination and faded backgrounds, which is what keeps a washed-out
     # page from being misread as illegible. Text ends up black on white.
-    threshold = _otsu_threshold(gray)
-    binary = np.where(gray > threshold, 255, 0).astype(np.uint8)
+    threshold = _otsu_threshold(small_gray)
+    binary = np.where(small_gray > threshold, 255, 0).astype(np.uint8)
 
     ink_fraction = float(np.mean(binary == 0))
-    return _downscale(Image.fromarray(binary), OCR_MAX_SIDE), ink_fraction
+    return Image.fromarray(binary), ink_fraction
 
 
 def _configure_pytesseract() -> Optional[object]:
@@ -400,15 +408,18 @@ def _score_document(images: List[Image.Image]) -> QualityReport:
             num_pages=len(images),
         )
 
-    # OCR spawns a Tesseract subprocess per page and releases the GIL while
-    # waiting on it, so the pages can be scored concurrently. This overlaps
-    # the subprocess wall time rather than paying it one page at a time.
-    with ThreadPoolExecutor(max_workers=len(pages)) as executor:
-        futures = [
-            executor.submit(_score_page, image, page_index)
-            for page_index, image in enumerate(pages)
-        ]
-        scored = [f.result() for f in futures]
+    # Single-page documents skip the thread-pool overhead; multi-page documents
+    # score concurrently because OCR spawns a Tesseract subprocess and releases
+    # the GIL while waiting on it.
+    if len(pages) == 1:
+        scored = [_score_page(pages[0], 0)]
+    else:
+        with ThreadPoolExecutor(max_workers=len(pages)) as executor:
+            futures = [
+                executor.submit(_score_page, image, page_index)
+                for page_index, image in enumerate(pages)
+            ]
+            scored = [f.result() for f in futures]
 
     scores = [s for s in scored if s is not None]
 
