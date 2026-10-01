@@ -49,7 +49,7 @@ logger = logging.getLogger("broker.api.utils.pdf_quality")
 
 # OCR render size. Tesseract accuracy plateaus well below the 350 DPI render
 # size and the full-size run would dominate request latency.
-OCR_MAX_SIDE = 2000
+OCR_MAX_SIDE = 1400
 
 # Tesseract confidence that maps to a perfect OCR score, and the confidence
 # that maps to zero. Clean 300 DPI scans measure 60-92 on these documents.
