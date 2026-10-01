@@ -92,19 +92,39 @@ async def process_file_to_images(file, dpi: int):
                 dpi,
             )
 
-        # Crop whitespace to reduce tokens
-        image = crop_whitespace(image)
+        # Crop whitespace to reduce tokens. Runs off the event loop: the numpy
+        # passes over the full-resolution array are blocking.
+        image = await crop_whitespace_async(image)
         logger.info("Cropped image to %dx%d", image.width, image.height)
 
         return [image]
     else:
         # Process as PDF
         images = await convert_pdf_to_images(content, dpi)
-        # Crop whitespace from each page
-        cropped_images = [crop_whitespace(img) for img in images]
+        # Crop whitespace from each page. Independent per page, so the crops
+        # run concurrently rather than serially on the event loop.
+        cropped_images = await asyncio.gather(
+            *(crop_whitespace_async(img) for img in images)
+        )
         for i, img in enumerate(cropped_images):
             logger.info("Cropped page %d to %dx%d", i + 1, img.width, img.height)
         return cropped_images
+
+
+async def crop_whitespace_async(
+    image: Image.Image,
+    threshold: int = 245,
+    noise_tolerance: float = 0.02,
+    padding: int = 10,
+) -> Image.Image:
+    """Async wrapper around :func:`crop_whitespace`.
+
+    The numpy passes over the full-resolution array are blocking, so they run
+    in a worker thread to keep the event loop free for other requests.
+    """
+    return await asyncio.to_thread(
+        crop_whitespace, image, threshold, noise_tolerance, padding
+    )
 
 
 def crop_whitespace(
