@@ -39,13 +39,27 @@ import asyncio
 import logging
 import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import cache
 from typing import List, Optional
 
 import numpy as np
 from PIL import Image
 
+from .image import build_image_payload
+
 logger = logging.getLogger("broker.api.utils.pdf_quality")
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - depends on env
+    pytesseract = None  # type: ignore[assignment]
+
+# Sentinel for one-time pytesseract configuration: ``None`` = not yet
+# attempted, ``False`` = pytesseract or Tesseract binary unavailable,
+# ``True`` = configured and ready.
+_pytesseract_configured: Optional[bool] = None
 
 # OCR render size. Tesseract accuracy plateaus well below the 350 DPI render
 # size and the full-size run would dominate request latency.
@@ -79,6 +93,7 @@ VOLUME_WEIGHT = 0.30
 MAX_SCORED_PAGES = 3
 
 
+@cache
 def _tesseract_cmd() -> Optional[str]:
     """Locate the Tesseract binary.
 
@@ -87,6 +102,10 @@ def _tesseract_cmd() -> Optional[str]:
     check - falling back to the known Lambda layer locations and to PATH means
     a wrong environment variable degrades to "found it anyway" rather than
     routing every document to the expensive model.
+
+    The result is cached: the binary location does not change during a
+    container's lifetime, and re-running filesystem checks on every scored
+    page is wasteful.
     """
     configured = os.getenv("TESSERACT_CMD")
     if configured and os.path.isfile(configured) and os.access(configured, os.X_OK):
@@ -194,6 +213,33 @@ def _prepare_for_ocr(image: Image.Image) -> tuple[Image.Image, float]:
     return _downscale(Image.fromarray(binary), OCR_MAX_SIDE), ink_fraction
 
 
+def _configure_pytesseract() -> Optional[object]:
+    """Return a configured pytesseract module, or None if unavailable.
+
+    The pytesseract import and the ``tesseract_cmd`` assignment are performed
+    once and reused across every page, instead of repeating the import
+    machinery and the binary lookup on each scored page.
+    """
+    global _pytesseract_configured
+    if _pytesseract_configured is not None:
+        return pytesseract
+
+    if pytesseract is None:
+        logger.warning("pytesseract unavailable, readability not assessed")
+        _pytesseract_configured = False
+        return None
+
+    cmd = _tesseract_cmd()
+    if cmd:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+        _pytesseract_configured = True
+        return pytesseract
+
+    logger.warning("Tesseract binary not found, readability not assessed")
+    _pytesseract_configured = False
+    return None
+
+
 def _ocr_languages(pytesseract, prepared: Image.Image) -> Optional[dict]:
     """Run OCR, degrading to a simpler language set if one is unavailable.
 
@@ -229,19 +275,11 @@ def _ocr_measurements(image: Image.Image) -> Optional[dict]:
     when OCR fails for any other reason. Pages that carry essentially no ink
     are treated as unreadable (zero characters) without invoking Tesseract.
     """
-    try:
-        import pytesseract
-    except Exception as exc:  # pragma: no cover - depends on env
-        logger.warning("pytesseract unavailable, readability not assessed: %s", exc)
-        return None
-
-    cmd = _tesseract_cmd()
-    if not cmd:
-        logger.warning("Tesseract binary not found, readability not assessed")
+    configured = _configure_pytesseract()
+    if configured is None:
         return None
 
     try:
-        pytesseract.pytesseract.tesseract_cmd = cmd
         prepared, ink_fraction = _prepare_for_ocr(image)
     except Exception as exc:
         logger.warning("Page preprocessing failed, readability not assessed: %s", exc)
@@ -257,7 +295,7 @@ def _ocr_measurements(image: Image.Image) -> Optional[dict]:
         return {"chars": 0, "mean_conf": 0.0}
 
     try:
-        data = _ocr_languages(pytesseract, prepared)
+        data = _ocr_languages(configured, prepared)
     except Exception as exc:
         logger.warning("OCR failed, readability not assessed: %s", exc)
         return None
@@ -338,21 +376,41 @@ class QualityReport:
         return get_expensive_model()
 
 
+def _score_page(image: Image.Image, page_index: int) -> Optional[float]:
+    """Score a single page, logging and swallowing any errors."""
+    try:
+        return readability_score(image)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "Readability check failed on page %d: %s", page_index + 1, exc
+        )
+        return None
+
+
 def _score_document(images: List[Image.Image]) -> QualityReport:
     """Compute the aggregated quality report for a list of page images."""
     pages = images[:MAX_SCORED_PAGES]
 
-    scores = []
-    for page_index, image in enumerate(pages):
-        try:
-            value = readability_score(image)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning(
-                "Readability check failed on page %d: %s", page_index + 1, exc
-            )
-            value = None
-        if value is not None:
-            scores.append(value)
+    if not pages:
+        logger.warning("Readability could not be assessed, defaulting to low score")
+        return QualityReport(
+            score=0.0,
+            threshold=get_quality_threshold(),
+            metrics={},
+            num_pages=len(images),
+        )
+
+    # OCR spawns a Tesseract subprocess per page and releases the GIL while
+    # waiting on it, so the pages can be scored concurrently. This overlaps
+    # the subprocess wall time rather than paying it one page at a time.
+    with ThreadPoolExecutor(max_workers=len(pages)) as executor:
+        futures = [
+            executor.submit(_score_page, image, page_index)
+            for page_index, image in enumerate(pages)
+        ]
+        scored = [f.result() for f in futures]
+
+    scores = [s for s in scored if s is not None]
 
     if not scores:
         # OCR could not run on any page. Default to the worst case rather than
@@ -425,8 +483,6 @@ async def select_model_and_payload(
     independent, so running them in parallel hides the JPEG encoding cost behind
     the OCR cost rather than adding it to the tail of the request.
     """
-    from .image import build_image_payload
-
     (model, report), payload = await asyncio.gather(
         select_model_for_images(images),
         build_image_payload(images),
