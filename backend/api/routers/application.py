@@ -9,12 +9,11 @@ from openai import AsyncOpenAI
 
 from ..models import ApplicationItem
 from ..utils import (
-    build_image_payload,
     process_file_to_images,
     find_suspicious_address_token,
     get_dpi,
     get_temperature_kwargs,
-    select_model_for_images,
+    select_model_and_payload,
 )
 from ..utils.logging_config import get_logger
 
@@ -58,7 +57,7 @@ async def parse_application(
         },
     )
 
-    gpt_model, quality = await select_model_for_images(images)
+    gpt_model, quality, image_payload = await select_model_and_payload(images)
 
     content_payload = [
         {
@@ -77,7 +76,7 @@ async def parse_application(
         }
     ]
 
-    content_payload.extend(await build_image_payload(images))
+    content_payload.extend(image_payload)
 
     system_prompt = (
         "Ти професійний логіст. Точно зчитуй дані з документа без фантазування.\n"

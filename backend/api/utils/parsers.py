@@ -16,12 +16,11 @@ from ..models import (
     ApplicationItem,
 )
 from .image import (
-    build_image_payload,
     process_file_to_images,
     get_dpi,
     get_temperature_kwargs,
 )
-from .pdf_quality import select_model_for_images
+from .pdf_quality import select_model_and_payload
 from .text import normalize_quotes
 from .logging_config import get_logger
 
@@ -104,7 +103,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
         },
     )
 
-    gpt_model, quality = await select_model_for_images(images)
+    gpt_model, quality, image_payload = await select_model_and_payload(images)
 
     content_payload = [
         {
@@ -115,7 +114,7 @@ async def parse_lite_invoice(file) -> LiteInvoiceData:
             ),
         }
     ]
-    content_payload.extend(await build_image_payload(images))
+    content_payload.extend(image_payload)
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,
@@ -178,7 +177,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
         },
     )
 
-    gpt_model, quality = await select_model_for_images(images)
+    gpt_model, quality, image_payload = await select_model_and_payload(images)
 
     content_payload = [
         {
@@ -190,7 +189,7 @@ async def parse_lite_application(file) -> LiteApplicationItem:
             ),
         }
     ]
-    content_payload.extend(await build_image_payload(images))
+    content_payload.extend(image_payload)
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,
@@ -253,7 +252,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
         },
     )
 
-    gpt_model, quality = await select_model_for_images(images)
+    gpt_model, quality, image_payload = await select_model_and_payload(images)
 
     content_payload = [
         {
@@ -264,7 +263,7 @@ async def parse_lite_cmr(file) -> LiteCMRDocument:
             ),
         }
     ]
-    content_payload.extend(await build_image_payload(images))
+    content_payload.extend(image_payload)
 
     completion = await client.beta.chat.completions.parse(
         model=gpt_model,

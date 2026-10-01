@@ -413,3 +413,22 @@ async def select_model_for_images(images: List[Image.Image]) -> tuple[str, Quali
     )
 
     return report.model, report
+
+
+async def select_model_and_payload(
+    images: List[Image.Image],
+) -> tuple[str, QualityReport, List[dict]]:
+    """Score document quality and build the vision payload concurrently.
+
+    The chosen GPT model depends only on OCR readability, while the JPEG
+    payload depends only on the page images themselves. The two passes are
+    independent, so running them in parallel hides the JPEG encoding cost behind
+    the OCR cost rather than adding it to the tail of the request.
+    """
+    from .image import build_image_payload
+
+    (model, report), payload = await asyncio.gather(
+        select_model_for_images(images),
+        build_image_payload(images),
+    )
+    return model, report, payload
