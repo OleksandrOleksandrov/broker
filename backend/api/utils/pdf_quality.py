@@ -39,7 +39,6 @@ import asyncio
 import logging
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cache
 from typing import List, Optional
@@ -61,20 +60,20 @@ except ImportError:  # pragma: no cover - depends on env
 # ``True`` = configured and ready.
 _pytesseract_configured: Optional[bool] = None
 
-# OCR render size. Tesseract accuracy plateaus well below the 350 DPI render
-# size and the full-size run would dominate request latency.
-OCR_MAX_SIDE = 1500
+# Reduced OCR render max side. Tesseract accuracy plateaus early, and processing
+# fewer pixels saves significant NumPy and Tesseract execution time on Lambda.
+OCR_MAX_SIDE = 1000
 
 # Tesseract confidence that maps to a perfect OCR score, and the confidence
 # that maps to zero. Clean 300 DPI scans measure 60-92 on these documents.
 OCR_CONF_ZERO = 40.0
 OCR_CONF_FULL = 90.0
 
-# Characters expected on a normal page, where the volume term saturates.
-OCR_CHARS_FULL = 600
+# Characters expected on a 50% cropped middle page band where volume saturates.
+OCR_CHARS_FULL = 300
 # Below this an OCR pass recovered essentially nothing, which is treated as a
 # hard failure regardless of the reported confidence.
-OCR_CHARS_FLOOR = 150
+OCR_CHARS_FLOOR = 75
 
 # Maximum fraction of ink (black pixels after Otsu binarization) a page may
 # carry and still be considered blank. A real document page is well above this;
@@ -146,6 +145,18 @@ def get_quality_threshold() -> float:
         return 75.0
 
 
+def _crop_middle_band(image: Image.Image) -> Image.Image:
+    """Crop the middle 50% vertical slice of the image.
+
+    Invoices and standard forms have their densest content (tables/line items)
+    in the center. Cropping cuts down image processing and OCR time by ~50%.
+    """
+    width, height = image.size
+    top = int(height * 0.25)
+    bottom = int(height * 0.75)
+    return image.crop((0, top, width, bottom))
+
+
 def _to_gray_array(image: Image.Image) -> np.ndarray:
     """Convert a PIL image to a writable uint8 grayscale numpy array.
 
@@ -184,8 +195,12 @@ def _otsu_threshold(gray: np.ndarray) -> int:
     sum_bg = np.cumsum(hist * levels)
     sum_fg = sum_bg[-1] - sum_bg
 
-    mean_bg = np.divide(sum_bg, weight_bg, out=np.zeros_like(sum_bg), where=weight_bg > 0)
-    mean_fg = np.divide(sum_fg, weight_fg, out=np.zeros_like(sum_fg), where=weight_fg > 0)
+    mean_bg = np.divide(
+        sum_bg, weight_bg, out=np.zeros_like(sum_bg), where=weight_bg > 0
+    )
+    mean_fg = np.divide(
+        sum_fg, weight_fg, out=np.zeros_like(sum_fg), where=weight_fg > 0
+    )
 
     # Between-class variance is maximised at the best split.
     between_class = weight_bg * weight_fg * (mean_bg - mean_fg) ** 2
@@ -249,14 +264,7 @@ def _configure_pytesseract() -> Optional[object]:
 
 
 def _ocr_languages(pytesseract, prepared: Image.Image) -> Optional[dict]:
-    """Run OCR, degrading to a simpler language set if one is unavailable.
-
-    The Lambda layer may ship only a subset of the trained data requested via
-    ``OCR_LANG``, so the configured language list is tried in full first and
-    then narrowed. Readability does not depend on recognising the script
-    correctly: the confidence and volume of the detected words are what
-    matter, so English-only is a perfectly usable fallback.
-    """
+    """Run OCR with speed optimization flags (--psm 11 --oem 1)."""
     configured = os.getenv("OCR_LANG", "eng+ukr")
     candidates = [configured]
     primary = configured.split("+")[0]
@@ -265,10 +273,17 @@ def _ocr_languages(pytesseract, prepared: Image.Image) -> Optional[dict]:
     if "eng" not in candidates:
         candidates.append("eng")
 
+    # Fast Tesseract config: PSM 11 (sparse text, faster for layout-less scoring)
+    # OEM 1 (LSTM engine only)
+    fast_config = "--psm 11 --oem 1"
+
     for lang in candidates:
         try:
             return pytesseract.image_to_data(
-                prepared, output_type=pytesseract.Output.DICT, lang=lang
+                prepared,
+                output_type=pytesseract.Output.DICT,
+                lang=lang,
+                config=fast_config,
             )
         except Exception as exc:
             logger.warning("OCR with lang=%s failed: %s", lang, exc)
@@ -277,18 +292,15 @@ def _ocr_languages(pytesseract, prepared: Image.Image) -> Optional[dict]:
 
 
 def _ocr_measurements(image: Image.Image) -> Optional[dict]:
-    """Return OCR character count and mean confidence for one page.
-
-    Returns None when pytesseract or the Tesseract binary is unavailable, or
-    when OCR fails for any other reason. Pages that carry essentially no ink
-    are treated as unreadable (zero characters) without invoking Tesseract.
-    """
+    """Return OCR character count and mean confidence for one page."""
     configured = _configure_pytesseract()
     if configured is None:
         return None
 
     try:
-        prepared, ink_fraction = _prepare_for_ocr(image)
+        # Crop the middle 50% first to halve pixel volume before NumPy/Otsu passes
+        cropped = _crop_middle_band(image)
+        prepared, ink_fraction = _prepare_for_ocr(cropped)
     except Exception as exc:
         logger.warning("Page preprocessing failed, readability not assessed: %s", exc)
         return None
@@ -389,14 +401,12 @@ def _score_page(image: Image.Image, page_index: int) -> Optional[float]:
     try:
         return readability_score(image)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "Readability check failed on page %d: %s", page_index + 1, exc
-        )
+        logger.warning("Readability check failed on page %d: %s", page_index + 1, exc)
         return None
 
 
 def _score_document(images: List[Image.Image]) -> QualityReport:
-    """Compute the aggregated quality report for a list of page images."""
+    """Compute aggregated quality sequentially with early exit on good score."""
     pages = images[:MAX_SCORED_PAGES]
 
     if not pages:
@@ -408,36 +418,34 @@ def _score_document(images: List[Image.Image]) -> QualityReport:
             num_pages=len(images),
         )
 
-    # Single-page documents skip the thread-pool overhead; multi-page documents
-    # score concurrently because OCR spawns a Tesseract subprocess and releases
-    # the GIL while waiting on it.
-    if len(pages) == 1:
-        scored = [_score_page(pages[0], 0)]
-    else:
-        with ThreadPoolExecutor(max_workers=len(pages)) as executor:
-            futures = [
-                executor.submit(_score_page, image, page_index)
-                for page_index, image in enumerate(pages)
-            ]
-            scored = [f.result() for f in futures]
+    threshold = get_quality_threshold()
+    scores: List[float] = []
 
-    scores = [s for s in scored if s is not None]
+    # Process pages sequentially. Spawning multiple Tesseract processes in parallel
+    # on Lambda thrashes the single vCPU and increases overall wall-clock time.
+    for page_index, image in enumerate(pages):
+        score = _score_page(image, page_index)
+        if score is not None:
+            scores.append(score)
+            # Short-circuit: if a page scores as good quality, stop processing
+            # subsequent pages to save CPU time.
+            if score >= threshold:
+                break
 
     if not scores:
-        # OCR could not run on any page. Default to the worst case rather than
-        # silently sending an unassessed document to the cheap model.
         logger.warning("Readability could not be assessed, defaulting to low score")
         return QualityReport(
             score=0.0,
-            threshold=get_quality_threshold(),
+            threshold=threshold,
             metrics={},
             num_pages=len(images),
         )
 
+    mean_score = round(float(np.mean(scores)), 1)
     return QualityReport(
-        score=round(float(np.mean(scores)), 1),
-        threshold=get_quality_threshold(),
-        metrics={"readability": round(float(np.mean(scores)), 1)},
+        score=mean_score,
+        threshold=threshold,
+        metrics={"readability": mean_score, "pages_scored": len(scores)},
         num_pages=len(images),
     )
 
@@ -462,7 +470,9 @@ async def pdf_score(images: List[Image.Image]) -> QualityReport:
     return await asyncio.to_thread(_score_document, images)
 
 
-async def select_model_for_images(images: List[Image.Image]) -> tuple[str, QualityReport]:
+async def select_model_for_images(
+    images: List[Image.Image],
+) -> tuple[str, QualityReport]:
     """Return the GPT model to use for a document plus its quality report.
 
     Documents at or above the quality threshold go to the cheap model;
