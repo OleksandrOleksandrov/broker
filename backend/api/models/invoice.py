@@ -40,7 +40,9 @@ class InvoiceItem(BaseModel):
 class InvoiceData(BaseModel):
     contract_number: Optional[str] = Field(
         default=None,
-        description=("Locate the invoice number. If not found, write 'not found'."),
+        description=(
+            "Locate the contract number. Usually it followed by 'Contract №' or 'Contract NO' or something similar. If not found, write 'not found'."
+        ),
     )
     invoice_number: Optional[str] = Field(
         default=None,
