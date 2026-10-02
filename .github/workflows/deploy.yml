@@ -27,8 +27,8 @@ jobs:
     env:
       PDF_DPI: ${{ vars.PDF_DPI || '350' }}
       GPT_MODEL: ${{ vars.GPT_MODEL || 'gpt-6.1-sol' }}
-      GPT_CHEAP_MODEL: ${{ vars.GPT_CHEAP_MODEL || 'gpt-4o-2024-11-20' }}
-      PDF_QUALITY_THRESHOLD: ${{ vars.PDF_QUALITY_THRESHOLD || '75' }}
+      GPT_CHEAP_MODEL: ${{ vars.GPT_CHEAP_MODEL || 'gpt-5.4-mini-2026-03-17' }}
+      PDF_QUALITY_THRESHOLD: ${{ vars.PDF_QUALITY_THRESHOLD || '70' }}
     
     steps:
       - name: Checkout code

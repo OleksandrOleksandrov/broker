@@ -14,8 +14,8 @@ The score (0-100) combines two signals from a Tesseract pass:
     but nearly blank does not score as highly readable.
 
 The score is 0.70 * confidence + 0.30 * volume. Documents scoring at or above
-``PDF_QUALITY_THRESHOLD`` (default 75) use the cheap model (``GPT_CHEAP_MODEL``,
-default ``gpt-4o-2024-11-20``); anything below uses the expensive ``GPT_MODEL``.
+``PDF_QUALITY_THRESHOLD`` (default 70) use the cheap model (``GPT_CHEAP_MODEL``,
+default ``gpt-5.4-mini-2026-03-17``); anything below uses the expensive ``GPT_MODEL``.
 
 The reference constants were calibrated against the sample scans in
 ``pdf_examples/`` and their artificially blurred, noised and faded variants.
@@ -127,7 +127,7 @@ def _tesseract_cmd() -> Optional[str]:
 
 def get_cheap_model() -> str:
     """Model used for documents that pass the quality threshold."""
-    return os.getenv("GPT_CHEAP_MODEL", "gpt-4o-2024-11-20")
+    return os.getenv("GPT_CHEAP_MODEL", "gpt-5.4-mini-2026-03-17")
 
 
 def get_expensive_model() -> str:
@@ -137,12 +137,12 @@ def get_expensive_model() -> str:
 
 def get_quality_threshold() -> float:
     """Minimum quality score (0-100) required to use the cheap model."""
-    raw = os.getenv("PDF_QUALITY_THRESHOLD", "75")
+    raw = os.getenv("PDF_QUALITY_THRESHOLD", "70")
     try:
         return float(raw)
     except ValueError:
-        logger.warning("Invalid PDF_QUALITY_THRESHOLD=%r, falling back to 75", raw)
-        return 75.0
+        logger.warning("Invalid PDF_QUALITY_THRESHOLD=%r, falling back to 70", raw)
+        return 70.0
 
 
 def _crop_middle_band(image: Image.Image) -> Image.Image:

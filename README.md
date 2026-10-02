@@ -202,7 +202,7 @@ Scanned transport documents (invoices, CMRs, applications) vary wildly in qualit
 
 | Score | Model | Env var |
 |-------|-------|---------|
-| `>= PDF_QUALITY_THRESHOLD` (default 75) | Cheap — `gpt-4o-2024-11-20` | `GPT_CHEAP_MODEL` |
+| `>= PDF_QUALITY_THRESHOLD` (default 70) | Cheap — `gpt-5.4-mini-2026-03-17` | `GPT_CHEAP_MODEL` |
 | `< threshold` | Expensive — `GPT_MODEL` | `GPT_MODEL` |
 
 If OCR cannot run at all (pytesseract missing, no Tesseract binary, no usable language data) the document scores 0 and is routed to the expensive model. That is deliberate: OCR is the only signal, so there is nothing to fall back on, and defaulting to the expensive model keeps an unreadable document off the cheap model.
@@ -223,8 +223,8 @@ Reference constants were calibrated against the sample scans in `pdf_examples/` 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PDF_QUALITY_THRESHOLD` | `75` | Minimum score (0-100) to use the cheap model |
-| `GPT_CHEAP_MODEL` | `gpt-4o-2024-11-20` | Model for legible documents |
+| `PDF_QUALITY_THRESHOLD` | `70` | Minimum score (0-100) to use the cheap model |
+| `GPT_CHEAP_MODEL` | `gpt-5.4-mini-2026-03-17` | Model for legible documents |
 | `GPT_MODEL` | `GPT_MODEL` env value | Model for poor-quality documents |
 | `TESSERACT_CMD` | autodetected | Override Tesseract binary path |
 | `OCR_LANG` | `eng+ukr` | Languages tried, with fallback to the primary and `eng` |

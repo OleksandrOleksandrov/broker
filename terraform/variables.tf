@@ -85,13 +85,13 @@ variable "gpt_model" {
 variable "gpt_cheap_model" {
   description = "Cheap OpenAI GPT model ID, used for documents that pass the quality threshold"
   type        = string
-  default     = "gpt-4o-2024-11-20"
+  default     = "gpt-5.4-mini-2026-03-17"
 }
 
 variable "pdf_quality_threshold" {
   description = "Minimum document quality score (0-100) required to use the cheap GPT model"
   type        = string
-  default     = "75"
+  default     = "70"
 }
 
 variable "ocr_lang" {

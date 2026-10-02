@@ -30,7 +30,7 @@ def get_dpi() -> int:
 
 def get_gpt_model() -> str:
     """Read GPT_MODEL from the environment at request time."""
-    return os.getenv("GPT_MODEL", "gpt-4o-2024-11-20")
+    return os.getenv("GPT_MODEL", "gpt-5.4-mini-2026-03-17")
 
 
 def get_temperature_kwargs(model: str) -> dict:
