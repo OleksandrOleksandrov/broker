@@ -70,6 +70,36 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "pdf_dpi" {
+  description = "DPI for PDF to image conversion"
+  type        = string
+  default     = "350"
+}
+
+variable "gpt_model" {
+  description = "Expensive OpenAI GPT model ID, used for low-quality documents"
+  type        = string
+  default     = "gpt-6.1-sol"
+}
+
+variable "gpt_cheap_model" {
+  description = "Cheap OpenAI GPT model ID, used for documents that pass the quality threshold"
+  type        = string
+  default     = "gpt-5.4-mini-2026-03-17"
+}
+
+variable "pdf_quality_threshold" {
+  description = "Minimum document quality score (0-100) required to use the cheap GPT model"
+  type        = string
+  default     = "70"
+}
+
+variable "ocr_lang" {
+  description = "Tesseract language codes used by the document readability metric"
+  type        = string
+  default     = "eng+ukr"
+}
+
 variable "lambda_snap_start" {
   description = "SnapStart configuration for Lambda function (PublishedVersions or None)"
   type        = string

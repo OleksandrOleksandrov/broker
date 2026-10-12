@@ -27,7 +27,7 @@ class CombinedDocumentSummary(BaseModel):
         default=None, description="Номер інвойсу / ВН номер (ПД)"
     )
     vn_number_pd: Optional[str] = Field(default=None, description="ВН номер (ПД)")
-    vehicle_number: Optional[str] = Field(default=None, description="Номер машини")
+    vehicle_number: Optional[str] = Field(default=None, description="Vehicle number, export using latin letters")
     tax_document_number: Optional[str] = Field(
         default=None, description="Попередня декларация"
     )

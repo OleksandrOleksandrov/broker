@@ -24,6 +24,11 @@ jobs:
     name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      PDF_DPI: ${{ vars.PDF_DPI || '350' }}
+      GPT_MODEL: ${{ vars.GPT_MODEL || 'gpt-6.1-sol' }}
+      GPT_CHEAP_MODEL: ${{ vars.GPT_CHEAP_MODEL || 'gpt-5.4-mini-2026-03-17' }}
+      PDF_QUALITY_THRESHOLD: ${{ vars.PDF_QUALITY_THRESHOLD || '70' }}
     
     steps:
       - name: Checkout code
@@ -47,7 +52,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       - name: Install uv
         run: |
@@ -75,6 +80,10 @@ jobs:
         env:
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          TF_VAR_pdf_dpi: ${{ env.PDF_DPI }}
+          TF_VAR_gpt_model: ${{ env.GPT_MODEL }}
+          TF_VAR_gpt_cheap_model: ${{ env.GPT_CHEAP_MODEL }}
+          TF_VAR_pdf_quality_threshold: ${{ env.PDF_QUALITY_THRESHOLD }}
 
       - name: Deployment Summary
         run: |

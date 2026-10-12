@@ -5,12 +5,12 @@ This ensures binary compatibility with Lambda's runtime environment.
 """
 
 import os
-import sys
 import shutil
 import subprocess
-from pathlib import Path
+import sys
 import tempfile
 import zipfile
+from pathlib import Path
 
 
 def run_command(cmd, cwd=None):
@@ -24,19 +24,65 @@ def run_command(cmd, cwd=None):
 
 
 def build_poppler_layer(temp_path, output_path):
-    """Build an ARM64 Poppler layer from Amazon Linux Lambda-compatible packages."""
+    """Build an ARM64 Poppler + Tesseract layer for Lambda.
+
+    Tesseract backs the readability check in ``api.utils.pdf_quality``:
+    pytesseract is only a Python wrapper, the OCR engine itself has to ship in
+    the layer. It is therefore mandatory, and the build fails loudly if the
+    resulting binaries are unusable.
+
+    Two constraints shape the base image:
+
+    * Amazon Linux 2023 - the Lambda runtime - ships neither tesseract nor
+      leptonica in its repositories, so ``dnf install tesseract`` cannot work.
+      Ubuntu 20.04 has tesseract 4.x with the eng and ukr trained data.
+    * Ubuntu 20.04 links against glibc 2.31 while the AL2023 runtime provides
+      2.34, so the binaries are forward compatible. Shipping Ubuntu's libc
+      into the layer is not: it shadows the runtime's newer libc and breaks
+      every other program on the function (coreutils included). The glibc
+      family is therefore excluded from the copied libraries and the runtime
+      supplies its own.
+
+    The zip is rooted at bin/, lib/ and share/, which Lambda mounts under
+    /opt, giving /opt/bin/... to match the ``poppler_path`` variable.
+    """
     layer_dir = temp_path / "poppler-layer"
     layer_dir.mkdir()
     dockerfile = layer_dir / "Dockerfile"
     dockerfile.write_text(
-        """FROM public.ecr.aws/lambda/python:3.12
-RUN dnf install -y poppler-utils findutils && \\
-    mkdir -p /opt/poppler/bin /opt/poppler/lib && \\
-    cp /usr/bin/pdfinfo /usr/bin/pdftoppm /opt/poppler/bin/ && \\
-    for lib in $(ldd /usr/bin/pdfinfo /usr/bin/pdftoppm | \\
-        awk '/=> \\/|^\\// {print $3 ? $3 : $1}' | sort -u); do \\
-        [ -f "$lib" ] && cp "$lib" /opt/poppler/lib/; \\
-    done
+        """FROM ubuntu:20.04
+RUN set -eux; \\
+    export DEBIAN_FRONTEND=noninteractive; \\
+    apt-get update -qq; \\
+    apt-get install -y -qq --no-install-recommends \\
+        poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-ukr; \\
+    rm -rf /var/lib/apt/lists/*; \\
+    mkdir -p /opt/poppler/bin /opt/poppler/lib /opt/poppler/share/tessdata; \\
+    cp /usr/bin/pdfinfo /usr/bin/pdftoppm /usr/bin/tesseract /opt/poppler/bin/; \\
+    for d in /usr/share/tesseract-ocr/*/tessdata; do cp -r "$d"/. /opt/poppler/share/tessdata/; done; \\
+    rm -f /opt/poppler/share/tessdata/osd.traineddata; \\
+    ldd /opt/poppler/bin/pdfinfo /opt/poppler/bin/pdftoppm /opt/poppler/bin/tesseract \\
+        | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^\\//) print $i}' | sort -u \\
+        | while read -r lib; do \\
+            case "$(basename "$lib")" in \\
+                libc.so*|libm.so*|libmvec.so*|libpthread.so*|libdl.so*|librt.so*|ld-linux*|libresolv.so*|libnsl*|libutil.so*|libanl.so*|libcrypt.so*|libBrokenLocale.so*) \\
+                    continue ;; \\
+            esac; \\
+            cp -n "$lib" /opt/poppler/lib/ 2>/dev/null || true; \\
+        done; \\
+    if ldd /opt/poppler/bin/tesseract | grep -q "not found"; then \\
+        echo "MISSING TESSERACT LIBRARIES"; exit 1; fi; \\
+    if ls /opt/poppler/lib | grep -qE '^(libc\\.so|libm\\.so|libmvec\\.so|libpthread\\.so|libdl\\.so|librt\\.so|ld-linux|libresolv\\.so|libnsl|libutil\\.so|libanl\\.so|libcrypt\\.so|libBrokenLocale\\.so)'; then \\
+        echo "GLIBC LEAKED INTO LAYER - would shadow the runtime libc"; exit 1; fi
+# Prove the layer is self-contained by running the copied binaries from their
+# final location, and that the trained data tesseract needs is really there.
+RUN set -eux; \\
+    /opt/poppler/bin/pdfinfo -v; \\
+    /opt/poppler/bin/tesseract --version; \\
+    TESSDATA_PREFIX=/opt/poppler/share/tessdata /opt/poppler/bin/tesseract --list-langs \\
+        | grep -qw eng; \\
+    TESSDATA_PREFIX=/opt/poppler/share/tessdata /opt/poppler/bin/tesseract --list-langs \\
+        | grep -qw ukr
 """
     )
     print("Building ARM64 Poppler Lambda layer...")
@@ -155,7 +201,7 @@ def main():
 
         # Create Dockerfile
         dockerfile_content = """
-FROM public.ecr.aws/lambda/python:3.12
+FROM public.ecr.aws/lambda/python:3.14
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
@@ -214,15 +260,34 @@ CMD ["api.main.handler"]
         zip_path = api_dir / "api_lambda.zip"
         print(f"Creating zip file: {zip_path}")
 
+        # Files pip copies but Lambda never loads. The 250 MiB ceiling is
+        # measured on the UNZIPPED function plus its layers, so dropping the
+        # test suites, type stubs and C headers that ride along with every
+        # wheel is what keeps the deployable inside the quota. Trimming here
+        # rather than in the image also avoids needing findutils, which the
+        # Lambda base image does not ship.
+        pruned_dirs = {"tests", "__pycache__", "test"}
+        pruned_suffixes = (".pyc", ".pyi", ".h", ".so.debug")
+        pruned_names = {"RECORD", "INSTALLER"}
+
         uncompressed_size = 0
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(extract_dir):
                 # Skip __pycache__ directories
-                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d != "__pycache__" and d not in pruned_dirs
+                ]
 
                 for file in files:
                     # Skip .pyc files
                     if file.endswith(".pyc"):
+                        continue
+
+                    if file.endswith(pruned_suffixes):
+                        continue
+                    if file in pruned_names and ".dist-info" in root:
                         continue
 
                     file_path = Path(root) / file
@@ -230,7 +295,8 @@ CMD ["api.main.handler"]
                     zipf.write(file_path, arcname)
                     uncompressed_size += file_path.stat().st_size
 
-        build_poppler_layer(temp_path, api_dir / "poppler_layer.zip")
+        layer_path = api_dir / "poppler_layer.zip"
+        build_poppler_layer(temp_path, layer_path)
 
         # Get file size
         size_mb = zip_path.stat().st_size / (1024 * 1024)
@@ -239,10 +305,25 @@ CMD ["api.main.handler"]
             f"✅ Lambda package created: {zip_path} "
             f"({size_mb:.2f} MB compressed, {uncompressed_mb:.2f} MB uncompressed)"
         )
-        if uncompressed_size >= 220 * 1024 * 1024:
+
+        # Lambda caps the UNZIPPED size of the function plus all of its layers,
+        # not the size of each artifact. Checking the function on its own is
+        # what let a 200 MiB package plus a 68 MiB layer through the build and
+        # then fail at deploy time with InvalidParameterValueException.
+        layer_uncompressed = sum(
+            info.file_size for info in zipfile.ZipFile(layer_path).infolist()
+        )
+        deployed_size = uncompressed_size + layer_uncompressed
+        limit = 250 * 1024 * 1024
+        print(
+            f"   layer {layer_uncompressed / (1024 * 1024):.2f} MB uncompressed; "
+            f"function + layer {deployed_size / (1024 * 1024):.2f} MB "
+            f"of {limit / (1024 * 1024):.0f} MB allowed"
+        )
+        if deployed_size >= limit:
             print(
-                "Error: uncompressed Lambda package is too large to safely use "
-                "with the configured Lambda layer (220 MiB limit)."
+                "Error: uncompressed function + layer exceeds the 250 MB Lambda "
+                "quota. Reduce dependencies or slim the layer before deploying."
             )
             sys.exit(1)
 

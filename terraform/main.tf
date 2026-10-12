@@ -196,7 +196,7 @@ resource "aws_lambda_layer_version" "poppler" {
   filename                 = "${path.module}/../backend/poppler_layer.zip"
   layer_name               = "${local.name_prefix}-poppler"
   compatible_architectures = ["arm64"]
-  compatible_runtimes      = ["python3.12"]
+  compatible_runtimes      = ["python3.14"]
   source_code_hash         = filebase64sha256("${path.module}/../backend/poppler_layer.zip")
 }
 
@@ -208,9 +208,9 @@ resource "aws_lambda_function" "api" {
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda_role.arn
   handler          = "lambda_handler.handler"
-  runtime          = "python3.12"
+  runtime          = "python3.14"
   architectures    = ["arm64"]
-  memory_size      = 512
+  memory_size      = 3008
   timeout          = var.lambda_timeout
   tags             = local.common_tags
 
@@ -220,13 +220,20 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      CORS_ORIGINS     = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
-      S3_BUCKET        = aws_s3_bucket.memory.id
-      USE_S3           = "true"
-      BEDROCK_MODEL_ID = var.bedrock_model_id
-      LD_LIBRARY_PATH  = var.ld_library_path
-      POPPLER_PATH     = var.poppler_path
-      OPENAI_API_KEY   = var.openai_api_key
+      CORS_ORIGINS            = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
+      S3_BUCKET               = aws_s3_bucket.memory.id
+      USE_S3                  = "true"
+      BEDROCK_MODEL_ID        = var.bedrock_model_id
+      LD_LIBRARY_PATH         = var.ld_library_path
+      POPPLER_PATH            = var.poppler_path
+      TESSERACT_CMD           = "${var.poppler_path}/tesseract"
+      TESSDATA_PREFIX         = "${dirname(var.poppler_path)}/share/tessdata"
+      OCR_LANG                = var.ocr_lang
+      OPENAI_API_KEY          = var.openai_api_key
+      PDF_DPI                 = var.pdf_dpi
+      GPT_MODEL               = var.gpt_model
+      GPT_CHEAP_MODEL         = var.gpt_cheap_model
+      PDF_QUALITY_THRESHOLD   = var.pdf_quality_threshold
     }
   }
 

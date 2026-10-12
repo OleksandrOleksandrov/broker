@@ -106,7 +106,7 @@ class ApplicationItem(BaseModel):
         default=None, description="Вимоги до транспортного засобу / тип кузова"
     )
     vehicle_info: Optional[str] = Field(
-        default=None, description="Транспортний засіб (номери авто та причепа)"
+        default=None, description="Vehicle (car and trailer license plates), export using latin letters"
     )
     driver_info: Optional[str] = Field(
         default=None,
